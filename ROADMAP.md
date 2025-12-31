@@ -26,25 +26,34 @@
 
 ---
 
-## Phase 2: Entity-Aware Retrieval (High Impact, Medium Effort)
+## Phase 2: Entity Extraction (Deferred - Pending Data Analysis)
 
-### 2.1 Entity Extraction
-- [ ] Integrate SpaCy German NER (de_core_news_lg)
-- [ ] Extract entities during ingestion (PERSON, ORG, CONCEPT, REGULATION)
-- [ ] Build `MENTIONED_IN` edges in Neo4j
-- [ ] Enable entity-based document discovery
+**Status:** On hold until corpus analysis determines if entity extraction adds value.
 
-### 2.2 Query Understanding
-- [ ] Extract entities from user queries
-- [ ] Map synonyms to canonical forms (GDPR ↔ DSGVO)
-- [ ] Query expansion using related entities
-- [ ] Intent classification (factual, procedural, exploratory)
+**Rationale:**
+- Hybrid search (BM25 + vector) may already handle synonym matching via embeddings
+- GIGO principle - need to verify corpus has extractable entities worth indexing
+- Manual dictionary approach doesn't scale
 
-### 2.3 Entity Resolution
-- [ ] Implement fuzzy matching for entity deduplication
-- [ ] Build `SAME_AS` edges for cross-document entities
-- [ ] Create canonical entity names
-- [ ] Handle entity aliases and abbreviations
+### 2.1 Prerequisites (Do First)
+- [ ] Analyze corpus for entity distribution
+- [ ] Measure baseline retrieval quality without entities
+- [ ] Identify high-value entity types for the domain
+
+### 2.2 Recommended Approach: LangExtract
+Tool: [google/langextract](https://github.com/google/langextract)
+
+Why LangExtract over SpaCy:
+- LLM-based extraction understands context
+- Source grounding maps entities to exact text positions
+- No language-specific model needed
+- Handles long documents with chunking
+
+### 2.3 Implementation (If Justified)
+- [ ] Define entity schemas with few-shot examples
+- [ ] Extract during ingestion with source positions
+- [ ] Store in Neo4j with `MENTIONED_IN` edges
+- [ ] Query expansion using extracted entities
 
 ---
 
@@ -112,8 +121,8 @@
 
 | Phase | Impact | Effort | Priority |
 |-------|--------|--------|----------|
-| Phase 1: Source Attribution | High | Low | **Do First** |
-| Phase 2: Entity-Aware Retrieval | High | Medium | **Do Next** |
+| Phase 1: Source Attribution | High | Low | ✅ Complete |
+| Phase 2: Entity Extraction | Unknown | Medium | Deferred (needs data analysis) |
 | Phase 3: Cross-Document Intelligence | Medium | High | Plan Carefully |
 | Phase 4: Operational Improvements | Medium | Medium | As Needed |
 | Phase 5: Scale Optimization | Low (until needed) | High | When Required |
