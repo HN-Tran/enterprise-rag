@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+import argparse
+
+from app.retrieval.hybrid import retrieve
+from app.reasoning.pack import pack_context
+from app.reasoning.evidence import extract_and_answer
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--q", required=True)
+    ap.add_argument("--k", type=int, default=8)
+    args = ap.parse_args()
+
+    result = retrieve(args.q)
+    hits = result["hits"][: args.k]
+    ctx = pack_context(args.q, hits, [])
+    ans = extract_and_answer(args.q, ctx)
+
+    print("PLAN:", result["plan"])
+    print("HITS:", len(hits))
+    print("ANSWER:", ans.get("final_answer"))
+    if ans.get("evidence"):
+        print("EVIDENCE COUNT:", len(ans["evidence"]))
+
+
+if __name__ == "__main__":
+    main()

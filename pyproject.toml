@@ -1,0 +1,98 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "enterprise-rag"
+version = "0.1.0"
+description = "Enterprise-grade RAG system (Postgres + pgvector, optional Neo4j)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+
+authors = [
+  { name = "HN-Tran" }
+]
+
+dependencies = [
+  # --- API / Service ---
+  "fastapi>=0.115.6",
+  "uvicorn>=0.34.0",
+
+  # --- Config / Validation ---
+  "pydantic>=2.10.4",
+  "pydantic-settings>=2.7.0",
+  "python-dotenv>=1.0.1",
+
+  # --- Database ---
+  "psycopg[binary]>=3.2.3",
+  "pgvector>=0.3.6",
+
+  # --- Neo4j (optional amplifier) ---
+  "neo4j>=5.26.0",
+
+  # --- HTTP / Utils ---
+  "requests>=2.32.3",
+  "numpy>=2.2.1",
+  "tqdm>=4.67.1",
+
+  # --- PDF / Office / HTML ingestion ---
+  "pymupdf>=1.24.14",
+  "python-docx>=1.1.2",
+  "openpyxl>=3.1.5",
+  "trafilatura>=1.12.2",
+  "beautifulsoup4>=4.12.3",
+  "lxml>=5.3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  # --- Formatting / Linting ---
+  "black>=24.10.0",
+  "ruff>=0.8.2",
+  "mypy>=1.13.0",
+
+  # --- Testing ---
+  "pytest>=8.3.4",
+  "pytest-cov>=6.0.0",
+
+  # --- DX ---
+  "ipython>=8.30.0",
+]
+
+[project.scripts]
+enterprise_rag-ingest-folder = "neo4j_asgi.scripts.ingest_folder:main"
+enterprise_rag-embed_windows = "neo4j_asgi.scripts.embed_windows:main"
+enterprise_rag-init_db = "neo4j_asgi.scripts.init_db:main"
+enterprise_rag-query = "neo4j_asgi.scripts.query:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["enterprise_rag"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "app/**",
+  "scripts/**",
+  "README.md",
+  "pyproject.toml",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "B"]
+ignore = ["E501"]  # handled by black
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
