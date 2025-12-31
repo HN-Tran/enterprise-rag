@@ -57,25 +57,31 @@ Why LangExtract over SpaCy:
 
 ---
 
-## Phase 3: Cross-Document Intelligence (Medium Impact, High Effort)
+## Phase 3: Citation Chain Traversal (Medium Impact, Medium Effort) ✅ COMPLETE
 
-### 3.1 Citation Parsing
-- [ ] Build citation regex patterns for German documents
-- [ ] Parse standards references (ISO, DIN, DSGVO, internal docs)
-- [ ] Create `CITES` and `REFERENCES` edges
-- [ ] Implement reference resolution to existing documents
+### 3.1 Citation Extraction ✅
+- [x] Extract URLs from PDF text and embedded hyperlinks (PyMuPDF)
+- [x] Parse German references: "siehe", "gemäß", "laut" patterns
+- [x] Parse standards references (ISO, DIN, DSGVO)
+- [x] Store in PostgreSQL `citations` table
 
-### 3.2 Document Relationships
-- [ ] Track document supersession (versioning)
-- [ ] Build `RELATED_TO` edges via similarity
-- [ ] Enable citation chain traversal
-- [ ] "See Also" recommendations in responses
+### 3.2 Citation Resolution ✅
+- [x] Match URLs to existing document URIs
+- [x] Fuzzy title matching for internal references
+- [x] Create `CITES` edges in Neo4j for resolved citations
+- [x] Graph traversal methods (get_citations_from, get_cited_by)
 
-### 3.3 Retrieval Integration
-- [ ] Graph expansion in retrieval pipeline
-- [ ] Multi-source retrieval (hybrid + entity + graph)
-- [ ] Result fusion and deduplication
-- [ ] Citation trail generation for transparency
+### 3.3 Retrieval Integration ✅
+- [x] Citation chain expansion in retrieval pipeline
+- [x] Include cited documents in context packing
+- [x] LLM prompt updated for citation chain awareness
+- [x] "via Zitat" annotation for transitive citations
+
+### 3.4 Future Enhancements (Not Implemented)
+- [ ] External URL fetching and ingestion
+- [ ] Document versioning/supersession tracking
+- [ ] "See Also" recommendations via similarity
+- [ ] Contradiction detection across sources
 
 ---
 
@@ -123,7 +129,7 @@ Why LangExtract over SpaCy:
 |-------|--------|--------|----------|
 | Phase 1: Source Attribution | High | Low | ✅ Complete |
 | Phase 2: Entity Extraction | Unknown | Medium | Deferred (needs data analysis) |
-| Phase 3: Cross-Document Intelligence | Medium | High | Plan Carefully |
+| Phase 3: Citation Chain Traversal | Medium | Medium | ✅ Complete |
 | Phase 4: Operational Improvements | Medium | Medium | As Needed |
 | Phase 5: Scale Optimization | Low (until needed) | High | When Required |
 

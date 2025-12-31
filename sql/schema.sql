@@ -116,3 +116,30 @@ CREATE INDEX IF NOT EXISTS idx_anchors_doc_page     ON anchors(doc_id, page_no);
 -- Optional: avoid duplicate spans
 CREATE UNIQUE INDEX IF NOT EXISTS uq_anchors_span
 ON anchors(doc_id, page_no, anchor_type, start_offset, end_offset);
+
+
+-- ---------- citations ----------
+-- Tracks references/links between documents for citation chain traversal
+CREATE TABLE IF NOT EXISTS citations (
+  citation_id   BIGSERIAL PRIMARY KEY,
+  source_doc_id TEXT NOT NULL REFERENCES documents(doc_id) ON DELETE CASCADE,
+  target_doc_id TEXT REFERENCES documents(doc_id) ON DELETE SET NULL,
+
+  citation_type TEXT NOT NULL,    -- 'url', 'iso', 'law', 'internal_ref'
+  raw_text      TEXT NOT NULL,    -- Original text containing the citation
+  normalized_ref TEXT NOT NULL,   -- Cleaned/normalized reference
+  page_no       INT NOT NULL,
+  char_offset   INT,              -- Character offset in page text
+
+  target_uri    TEXT,             -- External URL if applicable
+  resolved      BOOLEAN NOT NULL DEFAULT FALSE,
+  confidence    REAL NOT NULL DEFAULT 1.0,
+
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  UNIQUE (source_doc_id, normalized_ref, page_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_citations_source ON citations(source_doc_id);
+CREATE INDEX IF NOT EXISTS idx_citations_target ON citations(target_doc_id);
+CREATE INDEX IF NOT EXISTS idx_citations_unresolved ON citations(resolved) WHERE resolved = FALSE;

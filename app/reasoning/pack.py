@@ -5,12 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 
-def pack_context(query: str, hits: list[dict[str, Any]], anchors: list[dict[str, Any]]) -> dict[str, Any]:
+def pack_context(
+    query: str,
+    hits: list[dict[str, Any]],
+    anchors: list[dict[str, Any]],
+    cited_context: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """
     Pack retrieval results into indexed context for the LLM.
 
     Each source gets a unique index for citation purposes.
-    Windows are indexed first, then anchors continue the numbering.
+    Windows are indexed first, then anchors, then cited documents.
     """
     packed_hits = []
     for i, h in enumerate(hits, start=1):
@@ -49,4 +54,31 @@ def pack_context(query: str, hits: list[dict[str, Any]], anchors: list[dict[str,
             }
         )
 
-    return {"query": query, "windows": packed_hits, "anchors": packed_anchors}
+    # Continue numbering for cited documents (from citation chain)
+    cited_start_index = anchor_start_index + len(anchors)
+    packed_cited = []
+    if cited_context:
+        for i, c in enumerate(cited_context, start=cited_start_index):
+            page_start = c["page_start"]
+            page_end = c["page_end"]
+            location = f"Seite {page_start}" if page_start == page_end else f"Seite {page_start}-{page_end}"
+
+            packed_cited.append(
+                {
+                    "source_index": i,
+                    "window_id": c["window_id"],
+                    "doc_id": c["doc_id"],
+                    "title": c.get("title") or "Unbekannt",
+                    "uri": c.get("uri"),
+                    "location": location,
+                    "text": c["text"],
+                    "relationship": "zitiert von Hauptquellen",
+                }
+            )
+
+    return {
+        "query": query,
+        "windows": packed_hits,
+        "anchors": packed_anchors,
+        "cited_documents": packed_cited,
+    }

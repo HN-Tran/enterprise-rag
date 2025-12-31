@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
 import trafilatura
 from bs4 import BeautifulSoup
+
+from app.ingestion.citations import EmbeddedLink
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,7 @@ class ExtractedDoc:
     source_type: str
     uri: str
     pages: List[str]
+    links: List[EmbeddedLink] = field(default_factory=list)
 
 
 def extract_pdf(path: str) -> ExtractedDoc:
@@ -24,10 +27,37 @@ def extract_pdf(path: str) -> ExtractedDoc:
     p = Path(path)
     doc = fitz.open(path)
     pages = []
-    for page in doc:
+    links = []
+
+    for page_no, page in enumerate(doc, start=1):
         pages.append((page.get_text("text") or "").strip())
+
+        # Extract embedded hyperlinks
+        for link in page.get_links():
+            uri = link.get("uri")
+            if uri and uri.startswith(("http://", "https://")):
+                # Try to get link text from the rect area
+                rect = link.get("from")
+                link_text = None
+                if rect:
+                    try:
+                        link_text = page.get_text("text", clip=rect).strip()
+                    except Exception:
+                        pass
+                links.append(EmbeddedLink(
+                    page_no=page_no,
+                    uri=uri,
+                    text=link_text,
+                ))
+
     doc.close()
-    return ExtractedDoc(title=p.stem, source_type="pdf", uri=str(p.resolve()), pages=pages)
+    return ExtractedDoc(
+        title=p.stem,
+        source_type="pdf",
+        uri=str(p.resolve()),
+        pages=pages,
+        links=links,
+    )
 
 
 def extract_docx(path: str) -> ExtractedDoc:

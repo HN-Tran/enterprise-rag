@@ -9,6 +9,7 @@ from app.db import get_conn
 from app.retrieval.postgres_retrieval import bm25_candidates, vector_candidates
 from app.retrieval.query_plan import plan_query
 from app.retrieval.rerank import rerank_windows
+from app.retrieval.citation_expand import expand_with_citations
 
 
 def _hydrate_docs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -67,7 +68,7 @@ def _diversify(rows: list[dict[str, Any]], max_per_doc: int) -> list[dict[str, A
     return out
 
 
-def retrieve(query: str) -> dict[str, Any]:
+def retrieve(query: str, expand_citations: bool = True) -> dict[str, Any]:
     plan = plan_query(query)
     rewrites: list[str] = plan.get("rewrites", [query])
     bm25_q: str = plan.get("bm25_query", query)
@@ -90,4 +91,19 @@ def retrieve(query: str) -> dict[str, Any]:
     reranked = _hydrate_docs(reranked)
     reranked = _diversify(reranked, settings.MAX_PER_DOC)
 
-    return {"query": query, "plan": plan, "hits": reranked}
+    # Expand with citation chain context
+    cited_context: list[dict[str, Any]] = []
+    if expand_citations and settings.USE_NEO4J:
+        hit_doc_ids = [h["doc_id"] for h in reranked]
+        cited_context = expand_with_citations(
+            hit_doc_ids,
+            max_depth=getattr(settings, "CITATION_EXPAND_DEPTH", 2),
+            max_cited=getattr(settings, "CITATION_MAX_DOCS", 4),
+        )
+
+    return {
+        "query": query,
+        "plan": plan,
+        "hits": reranked,
+        "cited_context": cited_context,
+    }

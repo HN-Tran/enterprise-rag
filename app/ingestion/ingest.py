@@ -10,11 +10,46 @@ from app.db import get_conn, make_doc_id, sha256_file
 from app.ingestion.extractors import extract_any
 from app.ingestion.normalize import norm_text
 from app.ingestion.segment import build_anchors, build_windows
+from app.ingestion.citations import extract_citations, ExtractedCitation
 from app.neo4j_amp import Neo4jAmp
 
 
 def _sha256_text(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _resolve_citation(cur: Any, cit: ExtractedCitation) -> str | None:
+    """
+    Try to resolve a citation to an existing document in the corpus.
+
+    Returns target doc_id if found, None otherwise.
+    """
+    # URL match against document URIs
+    if cit.citation_type == "url" and cit.target_uri:
+        cur.execute(
+            "SELECT doc_id FROM documents WHERE uri = %(uri)s",
+            {"uri": cit.target_uri},
+        )
+        row = cur.fetchone()
+        if row:
+            return row["doc_id"]
+
+    # For internal refs, try fuzzy title matching
+    if cit.citation_type == "internal_ref" and len(cit.normalized_ref) >= 10:
+        # Simple ILIKE match - could use pg_trgm for better fuzzy matching
+        cur.execute(
+            """
+            SELECT doc_id, title FROM documents
+            WHERE title ILIKE %(pattern)s
+            LIMIT 1
+            """,
+            {"pattern": f"%{cit.normalized_ref[:50]}%"},
+        )
+        row = cur.fetchone()
+        if row:
+            return row["doc_id"]
+
+    return None
 
 
 def ingest_path(path: str) -> dict[str, Any]:
@@ -94,6 +129,41 @@ def ingest_path(path: str) -> dict[str, Any]:
                     {"doc": doc_id, "ps": w.page_start, "pe": w.page_end, "txt": w.text, "sha": win_sha},
                 )
 
+            # ---- citations ----
+            citations = extract_citations(pages, ex.links, doc_id)
+            cur.execute("DELETE FROM citations WHERE source_doc_id=%(doc)s", {"doc": doc_id})
+            citations_resolved = 0
+            for cit in citations:
+                # Try to resolve internal references to existing documents
+                target_doc_id = _resolve_citation(cur, cit)
+                if target_doc_id:
+                    citations_resolved += 1
+
+                cur.execute(
+                    """
+                    INSERT INTO citations (source_doc_id, target_doc_id, citation_type, raw_text,
+                                          normalized_ref, page_no, char_offset, target_uri,
+                                          resolved, confidence)
+                    VALUES (%(src)s, %(tgt)s, %(ctype)s, %(raw)s, %(norm)s, %(pno)s,
+                            %(offset)s, %(uri)s, %(resolved)s, %(conf)s)
+                    ON CONFLICT (source_doc_id, normalized_ref, page_no) DO UPDATE
+                    SET target_doc_id = EXCLUDED.target_doc_id,
+                        resolved = EXCLUDED.resolved
+                    """,
+                    {
+                        "src": doc_id,
+                        "tgt": target_doc_id,
+                        "ctype": cit.citation_type,
+                        "raw": cit.raw_text[:500],  # Limit raw text length
+                        "norm": cit.normalized_ref[:500],
+                        "pno": cit.page_no,
+                        "offset": cit.char_offset,
+                        "uri": cit.target_uri,
+                        "resolved": target_doc_id is not None,
+                        "conf": cit.confidence,
+                    },
+                )
+
         conn.commit()
 
     # Optional Neo4j mirror for amplification
@@ -107,11 +177,33 @@ def ingest_path(path: str) -> dict[str, Any]:
                 cur.execute("SELECT anchor_id, page_no, anchor_type FROM anchors WHERE doc_id=%s", (doc_id,))
                 arows = cur.fetchall()
 
+                # Get resolved citations for CITES edges
+                cur.execute(
+                    """
+                    SELECT citation_id, target_doc_id, citation_type, page_no
+                    FROM citations
+                    WHERE source_doc_id = %s AND resolved = TRUE
+                    """,
+                    (doc_id,),
+                )
+                crows = cur.fetchall()
+
         amp.upsert_pages_and_anchors(
             doc_id=doc_id,
             pages=list(range(1, len(pages) + 1)),
             anchors=[{"anchor_id": r["anchor_id"], "page_no": r["page_no"], "type": r["anchor_type"]} for r in arows],
         )
+
+        # Create CITES edges for resolved citations
+        for crow in crows:
+            amp.upsert_citation_edge(
+                source_doc_id=doc_id,
+                target_doc_id=crow["target_doc_id"],
+                citation_id=crow["citation_id"],
+                citation_type=crow["citation_type"],
+                page_no=crow["page_no"],
+            )
+
         amp.close()
 
     return {
@@ -121,4 +213,6 @@ def ingest_path(path: str) -> dict[str, Any]:
         "pages": len(pages),
         "windows": len(windows),
         "anchors": len(anchors),
+        "citations": len(citations),
+        "citations_resolved": citations_resolved,
     }

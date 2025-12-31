@@ -30,10 +30,15 @@ class Neo4jAmp:
             "CREATE CONSTRAINT doc_id IF NOT EXISTS FOR (d:Document) REQUIRE d.doc_id IS UNIQUE",
             "CREATE CONSTRAINT page_key IF NOT EXISTS FOR (p:Page) REQUIRE (p.doc_id, p.page_no) IS UNIQUE",
             "CREATE CONSTRAINT anchor_key IF NOT EXISTS FOR (a:Anchor) REQUIRE a.anchor_id IS UNIQUE",
+            # Index for CITES relationship lookups
+            "CREATE INDEX cites_idx IF NOT EXISTS FOR ()-[c:CITES]->() ON (c.citation_id)",
         ]
         with self.driver.session() as s:
             for q in cy:
-                s.run(q)
+                try:
+                    s.run(q)
+                except Exception:
+                    pass  # Ignore if already exists
 
     def upsert_doc(self, doc_id: str, title: str, uri: str | None, category: str | None, categories: list[str]) -> None:
         with self.driver.session() as s:
@@ -83,3 +88,59 @@ class Neo4jAmp:
             ).single()
         ids = rows["ids"] if rows and rows["ids"] else []
         return [int(x) for x in ids if x is not None]
+
+    def upsert_citation_edge(
+        self,
+        source_doc_id: str,
+        target_doc_id: str,
+        citation_id: int,
+        citation_type: str,
+        page_no: int,
+    ) -> None:
+        """Create or update a CITES relationship between documents."""
+        with self.driver.session() as s:
+            s.run(
+                """
+                MATCH (src:Document {doc_id: $src})
+                MATCH (tgt:Document {doc_id: $tgt})
+                MERGE (src)-[c:CITES {citation_id: $cid}]->(tgt)
+                SET c.type = $ctype, c.page_no = $page
+                """,
+                {
+                    "src": source_doc_id,
+                    "tgt": target_doc_id,
+                    "cid": citation_id,
+                    "ctype": citation_type,
+                    "page": page_no,
+                },
+            )
+
+    def get_citations_from(self, doc_id: str, depth: int = 1) -> list[dict[str, Any]]:
+        """Get documents cited by this document (outgoing CITES edges)."""
+        with self.driver.session() as s:
+            result = s.run(
+                """
+                MATCH (d:Document {doc_id: $doc})-[c:CITES*1..%d]->(cited:Document)
+                RETURN DISTINCT cited.doc_id AS doc_id,
+                       cited.title AS title,
+                       size(c) AS distance
+                ORDER BY distance
+                """ % depth,
+                {"doc": doc_id},
+            )
+            return [dict(r) for r in result]
+
+    def get_cited_by(self, doc_id: str, depth: int = 1) -> list[dict[str, Any]]:
+        """Get documents that cite this document (incoming CITES edges)."""
+        with self.driver.session() as s:
+            result = s.run(
+                """
+                MATCH (d:Document {doc_id: $doc})<-[c:CITES*1..%d]-(citing:Document)
+                RETURN DISTINCT citing.doc_id AS doc_id,
+                       citing.title AS title,
+                       size(c) AS distance
+                ORDER BY distance
+                """ % depth,
+                {"doc": doc_id},
+            )
+            return [dict(r) for r in result]

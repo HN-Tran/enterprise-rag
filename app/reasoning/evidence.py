@@ -17,9 +17,15 @@ WICHTIG - Zitierregeln:
 - Jede faktische Aussage MUSS mit mindestens einer Quelle belegt sein
 - Nummeriere die Quellen in der Reihenfolge ihrer ersten Verwendung
 
+Zitationsketten:
+- Der Kontext kann "cited_documents" enthalten - Dokumente, die von den Hauptquellen zitiert werden
+- Diese können als zusätzliche Belege dienen, besonders für Definitionen oder Referenzmaterial
+- Bei Verwendung von Zitationsketten-Quellen, vermerke "(via Zitat)" in der Quelle
+- Beispiel: "Gemäß ISO 27001 [3] (zitiert in [1])..."
+
 Regeln:
 - Nur Aussagen, die durch Belege gedeckt sind
-- Jeder Beleg muss eine Window-Quelle oder Anchor-Quelle referenzieren
+- Jeder Beleg muss eine Window-Quelle, Anchor-Quelle oder cited_document referenzieren
 - Bewerte die Konfidenz jeder Quelle (0.0-1.0)
 - Antworte ausschließlich als JSON im Schema:
 
@@ -31,7 +37,8 @@ Regeln:
       "title": "Dokumenttitel",
       "location": "Seite 12-14",
       "snippet": "Relevantes Zitat aus der Quelle...",
-      "confidence": 0.95
+      "confidence": 0.95,
+      "via_citation": false
     }
   ],
   "answer": "Laut [1] gilt... Zusätzlich zeigt [2], dass...",
