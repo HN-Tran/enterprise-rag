@@ -1,0 +1,23 @@
+{
+  "test_cases": [
+    {
+      "query": "Was sind die Anforderungen der DSGVO für die Verarbeitung personenbezogener Daten?",
+      "relevant_doc_ids": [],
+      "expected_answer_contains": ["DSGVO", "personenbezogen"],
+      "category": "compliance"
+    },
+    {
+      "query": "Wie funktioniert die Benutzerauthentifizierung im System?",
+      "relevant_doc_ids": [],
+      "expected_answer_contains": ["Authentifizierung"],
+      "category": "security"
+    },
+    {
+      "query": "Welche Dokumentenformate werden unterstützt?",
+      "relevant_doc_ids": [],
+      "expected_answer_contains": ["PDF"],
+      "category": "general"
+    }
+  ],
+  "_instructions": "Add relevant_doc_ids based on your document corpus. These are used to calculate retrieval metrics like precision and recall."
+}
