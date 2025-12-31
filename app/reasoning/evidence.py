@@ -48,7 +48,14 @@ Wenn weniger als 2 belastbare Belege vorhanden sind:
 - overall_confidence = "low"
 """
 
-_INSUFFICIENT_EVIDENCE = "Nicht genügend belastbare Belege im Korpus gefunden."
+_INSUFFICIENT_EVIDENCE_BASE = "Nicht genügend belastbare Belege im Korpus gefunden."
+
+_INSUFFICIENT_SUGGESTIONS = """
+
+Mögliche nächste Schritte:
+• Versuchen Sie eine spezifischere Formulierung der Frage
+• Prüfen Sie, ob relevante Dokumente bereits im System erfasst sind
+• Erweitern Sie die Suche auf verwandte Themen oder Begriffe"""
 
 
 def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -59,15 +66,15 @@ def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
     try:
         parsed = json.loads(content)
     except Exception:
-        return _build_insufficient_response(raw=content)
+        return _build_insufficient_response(query=query, raw=content)
 
     sources = parsed.get("sources", [])
     if len(sources) < 2:
-        return _build_insufficient_response(raw=content)
+        return _build_insufficient_response(query=query, partial_sources=sources, raw=content)
 
     # Build CitedAnswer
     cited_answer = CitedAnswer(
-        answer=parsed.get("answer", _INSUFFICIENT_EVIDENCE),
+        answer=parsed.get("answer", _INSUFFICIENT_EVIDENCE_BASE),
         confidence=parsed.get("overall_confidence", "low"),
         sources=[
             SourceCitation(
@@ -88,13 +95,42 @@ def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
     return asdict(cited_answer)
 
 
-def _build_insufficient_response(raw: str | None = None) -> dict[str, Any]:
+def _build_insufficient_response(
+    query: str | None = None,
+    partial_sources: list[dict[str, Any]] | None = None,
+    raw: str | None = None,
+) -> dict[str, Any]:
     """Build response when evidence is insufficient."""
+    # Build helpful message
+    if partial_sources and len(partial_sources) == 1:
+        message = (
+            f"Nur eine Quelle gefunden. Für eine zuverlässige Antwort werden "
+            f"mindestens zwei unabhängige Belege benötigt.{_INSUFFICIENT_SUGGESTIONS}"
+        )
+    else:
+        message = f"{_INSUFFICIENT_EVIDENCE_BASE}{_INSUFFICIENT_SUGGESTIONS}"
+
+    # Include partial source if available
+    sources = []
+    if partial_sources:
+        sources = [
+            SourceCitation(
+                index=i + 1,
+                doc_id=s.get("doc_id", ""),
+                title=s.get("title", "Unbekannt"),
+                location=s.get("location", ""),
+                snippet=s.get("snippet", ""),
+                confidence=s.get("confidence", 0.0),
+                uri=s.get("uri"),
+            )
+            for i, s in enumerate(partial_sources)
+        ]
+
     result = asdict(CitedAnswer(
-        answer=_INSUFFICIENT_EVIDENCE,
+        answer=message,
         confidence="low",
-        sources=[],
-        evidence_count=0,
+        sources=sources,
+        evidence_count=len(sources),
         insufficient_evidence=True,
     ))
     if raw:
