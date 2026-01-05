@@ -98,7 +98,7 @@ File → Extract → Normalize → Segment
 
 ### New Pipeline Components
 
-#### 1. Entity Extraction (`app/graph/entities.py`)
+#### 1. Entity Extraction (`enterprise_rag/graph/entities.py`)
 
 ```python
 from dataclasses import dataclass
@@ -129,7 +129,7 @@ def resolve_entity(entity: ExtractedEntity, existing: list[Entity]) -> str:
     pass
 ```
 
-#### 2. Citation Parsing (`app/graph/citations.py`)
+#### 2. Citation Parsing (`enterprise_rag/graph/citations.py`)
 
 ```python
 @dataclass
@@ -160,7 +160,7 @@ def resolve_reference(ref: ParsedReference, doc_index: SearchIndex) -> str | Non
     pass
 ```
 
-#### 3. Claim Extraction (`app/graph/claims.py`)
+#### 3. Claim Extraction (`enterprise_rag/graph/claims.py`)
 
 ```python
 @dataclass
@@ -188,7 +188,7 @@ def find_supporting_claims(claim: ExtractedClaim, graph: Neo4jAmp) -> list[str]:
     pass
 ```
 
-#### 4. Similarity Edge Builder (`app/graph/similarity.py`)
+#### 4. Similarity Edge Builder (`enterprise_rag/graph/similarity.py`)
 
 ```python
 def build_document_similarity_edges(threshold: float = 0.75):

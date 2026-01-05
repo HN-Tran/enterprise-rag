@@ -1,79 +1,99 @@
-# Enterprise RAG (Postgres + pgvector, optional Neo4j)
+# Enterprise RAG
 
-## 1) Services starten
+German-language document retrieval and question answering with precise source attribution.
 
+Built with Python 3.12, FastAPI, PostgreSQL+pgvector, and Neo4j.
+
+## Quick Start
+
+```bash
+# 1. Start infrastructure
 docker compose up -d
 
-2) Python Setup
+# 2. Install dependencies
+uv sync
 
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 3. Initialize database
+uv run python scripts/init_db.py
+
+# 4. Configure environment
 cp .env.example .env
+# Edit .env with your LLM/embedding endpoints
 
-3) DB initialisieren
+# 5. Ingest documents
+uv run python scripts/ingest_folder.py --folder /path/to/data --recursive
 
-python scripts/init_db.py
+# 6. Generate embeddings
+uv run python scripts/embed_windows.py --batch-size 64
 
-4) Ordner ingestieren (PDF/DOCX/XLSX/HTML/ASPX)
+# 7. Start API
+uv run uvicorn enterprise_rag.api:app --host 0.0.0.0 --port 8080
+```
 
-python scripts/ingest_folder.py --folder /abs/path/to/data --recursive
+## API Endpoints
 
-5) Embeddings für Windows schreiben (Batch)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Liveness check |
+| `/health/ready` | GET | Readiness check (all services) |
+| `/search` | POST | Query documents |
+| `/ingest` | POST | Ingest document |
 
-python scripts/embed_windows.py --batch-size 64
+```bash
+# Example query
+curl -X POST http://localhost:8080/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Was sind die DSGVO Anforderungen?"}'
+```
 
-6) Query testen
+## Project Structure
 
-python scripts/query.py --q "SSO Integration ISO 27001"
-
-7) API starten (optional)
-
-uvicorn app.api:app --host 0.0.0.0 --port 8080
-
-Endpoints
-
-    POST /ingest {"path": "/abs/file.pdf"}
-
-    POST /search {"query": "...", "k": 8}
-
-
----
-
+```
 enterprise_rag/
-├── README.md
-├── requirements.txt
-├── docker-compose.yml
-├── .env.example
-├── sql/
-│   └── schema.sql
-├── app/
-│   ├── __init__.py
-│   ├── api.py
-│   ├── config.py
-│   ├── log.py
-│   ├── db.py
-│   ├── neo4j_amp.py
-│   ├── llm.py
-│   ├── models.py
-│   ├── ingestion/
-│   │   ├── __init__.py
-│   │   ├── extractors.py
-│   │   ├── normalize.py
-│   │   ├── segment.py
-│   │   └── ingest.py
-│   ├── retrieval/
-│   │   ├── __init__.py
-│   │   ├── query_plan.py
-│   │   ├── postgres_retrieval.py
-│   │   ├── rerank.py
-│   │   └── hybrid.py
-│   └── reasoning/
-│       ├── __init__.py
-│       ├── pack.py
-│       └── evidence.py
-└── scripts/
-    ├── init_db.py
-    ├── ingest_folder.py
-    ├── embed_windows.py
-    └── query.py
+├── enterprise_rag/          # Main package
+│   ├── api.py               # FastAPI endpoints
+│   ├── config.py            # Settings (from .env)
+│   ├── db.py                # PostgreSQL + connection pooling
+│   ├── cache.py             # Redis caching layer
+│   ├── llm.py               # LLM/embedding clients
+│   ├── log.py               # Structured logging
+│   ├── telemetry.py         # OpenTelemetry tracing
+│   ├── neo4j_amp.py         # Neo4j graph operations
+│   ├── ingestion/           # Document processing
+│   ├── retrieval/           # Search pipeline
+│   ├── reasoning/           # Answer generation
+│   └── tasks/               # Background job queue
+├── scripts/                 # CLI tools
+├── sql/                     # Database schema
+├── tests/                   # Test suite
+└── docker-compose.yml       # Infrastructure
+```
+
+## Documentation
+
+- **[USAGE.md](USAGE.md)** - Detailed usage guide
+- **[ROADMAP.md](ROADMAP.md)** - Implementation phases
+- **[CLAUDE.md](CLAUDE.md)** - Developer guidance
+- **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** - System assessment
+
+## Features
+
+**Completed:**
+- Hybrid search (BM25 + vector) with reranking
+- Citation-aware answers with `[1]`, `[2]` references
+- Cross-document citation chain traversal
+- Connection pooling and Redis caching
+- Async ingestion with job queue
+- Structured logging and distributed tracing
+- Health endpoints for monitoring
+
+**Deferred:**
+- Entity extraction (pending corpus analysis)
+- Scale optimization (when needed)
+
+## Requirements
+
+- Python 3.12
+- [uv](https://docs.astral.sh/uv/) package manager
+- Docker & Docker Compose
+- OpenAI-compatible LLM/embedding endpoints

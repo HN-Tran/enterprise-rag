@@ -160,7 +160,7 @@ CREATE INDEX idx_doc_supersedes ON documents(supersedes);
 **Why:** "Find all documents about GDPR compliance" should find docs that mention GDPR, reference GDPR articles, discuss DSGVO (German), or implement GDPR requirements—even if they don't use the exact keyword.
 
 ```python
-# app/retrieval/entity_retrieval.py
+# enterprise_rag/retrieval/entity_retrieval.py
 
 class EntityRetriever:
     """
@@ -225,7 +225,7 @@ class EntityRetriever:
 ### 3. Multi-Stage Retrieval Pipeline
 
 ```python
-# app/retrieval/enterprise_retrieval.py
+# enterprise_rag/retrieval/enterprise_retrieval.py
 
 class EnterpriseRetriever:
     """
@@ -292,7 +292,7 @@ class EnterpriseRetriever:
 ### 4. Citation-Aware Answer Generation
 
 ```python
-# app/reasoning/cited_answer.py
+# enterprise_rag/reasoning/cited_answer.py
 
 SYSTEM_PROMPT = """Du bist ein Enterprise-Dokumentenassistent.
 Beantworte Fragen NUR basierend auf den bereitgestellten Quellen.
@@ -391,7 +391,7 @@ async def generate_cited_answer(
 **Incremental Ingestion:**
 
 ```python
-# app/ingestion/incremental.py
+# enterprise_rag/ingestion/incremental.py
 
 class IncrementalIngester:
     """
@@ -453,7 +453,7 @@ class IncrementalIngester:
 **Hot/Warm/Cold Tiering:**
 
 ```python
-# app/storage/tiered.py
+# enterprise_rag/storage/tiered.py
 
 class TieredStorage:
     """
@@ -501,7 +501,7 @@ class TieredStorage:
 ## Response Format (Perplexity-Style)
 
 ```python
-# app/models.py
+# enterprise_rag/models.py
 
 @dataclass
 class EnterpriseRAGResponse:
