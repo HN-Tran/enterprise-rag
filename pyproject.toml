@@ -25,7 +25,7 @@ dependencies = [
   "python-dotenv>=1.0.1",
 
   # --- Database ---
-  "psycopg[binary]>=3.2.3",
+  "psycopg[binary,pool]>=3.2.3",
   "pgvector>=0.3.6",
 
   # --- Neo4j (optional amplifier) ---
@@ -35,6 +35,18 @@ dependencies = [
   "requests>=2.32.3",
   "numpy>=2.2.1",
   "tqdm>=4.67.1",
+
+  # --- Caching & Task Queue ---
+  "redis>=5.0.0",
+  "rq>=1.16.0",
+
+  # --- Observability ---
+  "structlog>=24.0.0",
+  "opentelemetry-api>=1.20.0",
+  "opentelemetry-sdk>=1.20.0",
+  "opentelemetry-exporter-otlp>=1.20.0",
+  "opentelemetry-instrumentation-fastapi>=0.41b0",
+  "opentelemetry-instrumentation-requests>=0.41b0",
 
   # --- PDF / Office / HTML ingestion ---
   "pymupdf>=1.24.14",

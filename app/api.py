@@ -8,7 +8,11 @@ from pydantic import BaseModel, Field
 from app.log import setup_logging
 from app.ingestion.ingest import ingest_path
 from app.retrieval.hybrid import retrieve
-from app.db import get_conn
+from app.db import get_conn, init_pool, close_pool
+from app.cache import init_cache, close_cache, is_cache_available, get_cache_stats
+from app.telemetry import setup_telemetry, shutdown_telemetry
+from app.tasks import init_queues
+from app.tasks.ingestion import enqueue_ingest, get_job_status
 from app.config import settings
 from app.neo4j_amp import Neo4jAmp
 from app.reasoning.pack import pack_context
@@ -73,11 +77,100 @@ class SearchResponse(BaseModel):
 @app.on_event("startup")
 def _startup() -> None:
     setup_logging()
+    init_pool()
+    init_cache()
+    init_queues()
+    setup_telemetry(app)
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    shutdown_telemetry()
+    close_cache()
+    close_pool()
+
+
+# --- Health endpoints ---
+
+
+def _check_postgres() -> str:
+    """Check PostgreSQL connectivity."""
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+        return "ok"
+    except Exception as e:
+        return f"error: {e}"
+
+
+def _check_redis() -> str:
+    """Check Redis connectivity."""
+    if not is_cache_available():
+        return "disabled"
+    try:
+        stats = get_cache_stats()
+        return "ok" if stats.get("enabled") else "disabled"
+    except Exception as e:
+        return f"error: {e}"
+
+
+def _check_neo4j() -> str:
+    """Check Neo4j connectivity."""
+    if not settings.USE_NEO4J:
+        return "disabled"
+    try:
+        amp = Neo4jAmp.create()
+        amp.close()
+        return "ok"
+    except Exception as e:
+        return f"error: {e}"
+
+
+@app.get("/health")
+def health() -> dict:
+    """Basic health check - returns ok if API is running."""
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness() -> dict:
+    """Readiness check - verifies all dependencies are accessible."""
+    checks = {
+        "postgres": _check_postgres(),
+        "redis": _check_redis(),
+        "neo4j": _check_neo4j(),
+    }
+    all_ok = all(v == "ok" or v == "disabled" for v in checks.values())
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "checks": checks,
+    }
+
+
+@app.get("/health/cache")
+def cache_stats() -> dict:
+    """Cache statistics for monitoring."""
+    return get_cache_stats()
 
 
 @app.post("/ingest")
 def ingest(req: IngestRequest) -> dict:
+    """Ingest a document.
+
+    If ASYNC_INGEST is enabled and Redis is available, the ingestion
+    runs in the background and returns a job_id for status tracking.
+    Otherwise, runs synchronously.
+    """
+    if settings.ASYNC_INGEST:
+        return enqueue_ingest(req.path)
     return ingest_path(req.path)
+
+
+@app.get("/ingest/{job_id}")
+def ingest_status(job_id: str) -> dict:
+    """Get the status of an ingestion job."""
+    return get_job_status(job_id)
 
 
 @app.post("/search", response_model=SearchResponse)

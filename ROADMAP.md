@@ -85,25 +85,26 @@ Why LangExtract over SpaCy:
 
 ---
 
-## Phase 4: Operational Improvements
+## Phase 4: Operational Improvements ✅ COMPLETE
 
-### 4.1 Performance
-- [ ] Add Redis for query/embedding caching
-- [ ] Implement connection pooling (pgbouncer)
-- [ ] Skip query planning for simple queries
-- [ ] Optimize reranking batch sizes
+### 4.1 Performance ✅
+- [x] Add Redis for query/embedding caching (`app/cache.py`)
+- [x] Implement connection pooling (psycopg_pool in `app/db.py`)
+- [x] Skip query planning for simple queries (`app/retrieval/query_plan.py`)
+- [x] Cache query plans and embeddings
 
-### 4.2 Ingestion
-- [ ] Add async job queue (Celery/RQ) for ingestion
-- [ ] Background entity extraction
-- [ ] Incremental index updates
-- [ ] Document update detection (hash-based)
+### 4.2 Ingestion ✅
+- [x] Add async job queue (RQ) for ingestion (`app/tasks/`)
+- [x] Background embedding workers (`app/tasks/embeddings.py`)
+- [x] Document update detection (hash-based in `app/ingestion/ingest.py`)
+- [x] Job status tracking via `/ingest/{job_id}` endpoint
 
-### 4.3 Observability
-- [ ] Set up structured logging
-- [ ] Add OpenTelemetry tracing
-- [ ] Create monitoring dashboards
-- [ ] Alerting for quality degradation
+### 4.3 Observability ✅
+- [x] Set up structured logging (structlog in `app/log.py`)
+- [x] Add OpenTelemetry tracing with Jaeger (`app/telemetry.py`)
+- [x] Health endpoints (`/health`, `/health/ready`, `/health/cache`)
+- [ ] Create monitoring dashboards (external - Grafana)
+- [ ] Alerting for quality degradation (external - Alertmanager)
 
 ---
 

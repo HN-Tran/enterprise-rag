@@ -50,5 +50,23 @@ class Settings(BaseSettings):
     # Category boosting
     CATEGORY_BOOST: float = 1.20
 
+    # Connection pooling
+    DB_POOL_MIN: int = 5
+    DB_POOL_MAX: int = 20
+    DB_POOL_TIMEOUT: float = 30.0
+
+    # Redis caching
+    REDIS_URL: str | None = None
+    CACHE_EMBED_TTL: int = 86400  # 24h for embeddings
+    CACHE_QUERY_TTL: int = 3600  # 1h for query plans
+
+    # Async ingestion
+    ASYNC_INGEST: bool = False
+
+    # Observability
+    OTEL_ENDPOINT: str | None = None
+    LOG_JSON: bool = True
+    LOG_LEVEL: str = "INFO"
+
 
 settings = Settings()

@@ -10,6 +10,7 @@ from typing import Any, Iterable, List
 
 import requests
 
+from app.cache import cached_embeddings
 from app.config import settings
 
 
@@ -19,8 +20,8 @@ def _auth_headers(api_key: str) -> dict[str, str]:
     return {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Compute embeddings via OpenAI-compatible /embeddings endpoint."""
+def _embed_texts_impl(texts: list[str]) -> list[list[float]]:
+    """Compute embeddings via OpenAI-compatible /embeddings endpoint (uncached)."""
     url = settings.EMBED_BASE_URL.rstrip("/") + "/embeddings"
     payload = {"model": settings.EMBED_MODEL, "input": texts}
     r = requests.post(url, json=payload, headers=_auth_headers(settings.EMBED_API_KEY), timeout=180)
@@ -30,6 +31,10 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     if vecs and len(vecs[0]) != settings.EMBED_DIM:
         raise ValueError(f"Embedding dim {len(vecs[0])} != EMBED_DIM {settings.EMBED_DIM}")
     return vecs
+
+
+# Apply caching decorator - caches individual text embeddings
+embed_texts = cached_embeddings(_embed_texts_impl)
 
 
 def chat_json(system: str, user: str, temperature: float = 0.1, timeout_s: int = 180) -> str:

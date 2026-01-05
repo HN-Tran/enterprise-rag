@@ -52,10 +52,42 @@ def _resolve_citation(cur: Any, cit: ExtractedCitation) -> str | None:
     return None
 
 
-def ingest_path(path: str) -> dict[str, Any]:
+def ingest_path(path: str, force: bool = False) -> dict[str, Any]:
+    """Ingest a document into the RAG system.
+
+    Args:
+        path: Path to the file to ingest
+        force: If True, re-ingest even if file hasn't changed
+
+    Returns:
+        Dict with ingestion results or duplicate status
+    """
     ex = extract_any(path)
     doc_id = make_doc_id(ex.uri)
     file_hash = sha256_file(path)
+
+    # Check for existing document with same hash (skip if unchanged)
+    if not force:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT doc_id, sha256, updated_at
+                    FROM documents
+                    WHERE doc_id = %(doc)s
+                    """,
+                    {"doc": doc_id},
+                )
+                existing = cur.fetchone()
+
+                if existing and existing["sha256"] == file_hash:
+                    # File hasn't changed, skip re-ingestion
+                    return {
+                        "status": "unchanged",
+                        "doc_id": doc_id,
+                        "message": "Document already ingested with same content",
+                        "updated_at": existing["updated_at"].isoformat() if existing["updated_at"] else None,
+                    }
 
     pages = [norm_text(p) for p in ex.pages]
     anchors = build_anchors(pages)
