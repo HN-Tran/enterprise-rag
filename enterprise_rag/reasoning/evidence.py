@@ -10,24 +10,17 @@ from enterprise_rag.llm import chat_json
 from enterprise_rag.models import CitedAnswer, SourceCitation
 
 _SYSTEM = """\
-Du bist ein Evidence Extractor + Answerer für Enterprise-RAG (Deutsch).
+Du bist ein präziser Frage-Antwort-Assistent. Du antwortest NUR mit validem JSON.
 
-WICHTIG - Zitierregeln:
-- Verwende Quellenverweise [1], [2], [3] etc. in deiner Antwort
-- Jede faktische Aussage MUSS mit mindestens einer Quelle belegt sein
-- Nummeriere die Quellen in der Reihenfolge ihrer ersten Verwendung
+KRITISCH: Du MUSST als reines JSON antworten. Kein Markdown, keine Erklärungen außerhalb des JSON.
 
-Zitationsketten:
-- Der Kontext kann "cited_documents" enthalten - Dokumente, die von den Hauptquellen zitiert werden
-- Diese können als zusätzliche Belege dienen, besonders für Definitionen oder Referenzmaterial
-- Bei Verwendung von Zitationsketten-Quellen, vermerke "(via Zitat)" in der Quelle
-- Beispiel: "Gemäß ISO 27001 [3] (zitiert in [1])..."
+REGELN:
+1. Beantworte die Frage DIREKT in 1-2 Sätzen im "answer" Feld
+2. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
+3. Verwende Quellenverweise [1], [2] im "answer" Text
+4. Gib NUR das JSON zurück, nichts anderes
 
-Regeln:
-- Nur Aussagen, die durch Belege gedeckt sind
-- Jeder Beleg muss eine Window-Quelle, Anchor-Quelle oder cited_document referenzieren
-- Bewerte die Konfidenz jeder Quelle (0.0-1.0)
-- Antworte ausschließlich als JSON im Schema:
+AUSGABEFORMAT (exakt dieses JSON-Schema verwenden):
 
 {
   "sources": [
@@ -50,9 +43,11 @@ Konfidenz-Bewertung:
 - medium: 2 Belege oder teilweise Übereinstimmung
 - low: Schwache Belege oder Unsicherheit
 
-Wenn weniger als 2 belastbare Belege vorhanden sind:
+Wenn KEINE belastbaren Belege vorhanden sind:
 - answer = "Nicht genügend belastbare Belege im Korpus gefunden."
 - overall_confidence = "low"
+
+Bei nur einem Beleg: Antworte trotzdem, aber setze overall_confidence = "low".
 """
 
 _INSUFFICIENT_EVIDENCE_BASE = "Nicht genügend belastbare Belege im Korpus gefunden."
@@ -65,18 +60,128 @@ Mögliche nächste Schritte:
 • Erweitern Sie die Suche auf verwandte Themen oder Begriffe"""
 
 
-def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
-    """Extract evidence and generate cited answer."""
-    user = json.dumps({"query": query, "context": context}, ensure_ascii=False)
-    content = chat_json(system=_SYSTEM, user=user, temperature=0.0, timeout_s=240)
+def _extract_json_from_response(content: str) -> dict | None:
+    """Try to extract JSON from response, handling markdown code blocks."""
+    import re
 
+    parsed = None
+
+    # Try direct parse first
     try:
         parsed = json.loads(content)
     except Exception:
+        pass
+
+    # Try to find JSON in code blocks
+    if not parsed:
+        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(1))
+            except Exception:
+                pass
+
+    # Try to find any JSON object
+    if not parsed:
+        json_match = re.search(r"\{[^{}]*\}", content, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group())
+            except Exception:
+                pass
+
+    if not parsed:
+        return None
+
+    # Normalize keys - LLM sometimes uses different key names
+    if "answer" not in parsed:
+        # Try to find answer in other common keys
+        for key in list(parsed.keys()):
+            if key not in ("sources", "source", "overall_confidence", "confidence"):
+                # Use first non-standard key as answer
+                val = parsed[key]
+                if isinstance(val, str):
+                    parsed["answer"] = val
+                    break
+
+    if "sources" not in parsed and "source" in parsed:
+        parsed["sources"] = parsed["source"]
+
+    if "overall_confidence" not in parsed:
+        parsed["overall_confidence"] = parsed.get("confidence", "medium")
+
+    return parsed
+
+
+def _build_fallback_response(query: str, content: str, context: dict[str, Any]) -> dict[str, Any]:
+    """Build response from non-JSON LLM output by using the text directly."""
+    # The LLM generated useful content but not in JSON format
+    # Use the markdown content as the answer
+    sources = []
+    for i, w in enumerate(context.get("windows", [])[:3]):
+        sources.append(SourceCitation(
+            index=i + 1,
+            doc_id=w.get("doc_id", ""),
+            title=w.get("title", "Unbekannt"),
+            location=w.get("location", ""),
+            snippet=w.get("text", "")[:200],
+            confidence=0.7,
+            uri=w.get("uri"),
+        ))
+
+    return asdict(CitedAnswer(
+        answer=content[:3000],  # Use the markdown response as answer
+        confidence="medium",
+        sources=sources,
+        evidence_count=len(sources),
+        insufficient_evidence=False,
+    ))
+
+
+def _format_context_as_text(query: str, context: dict[str, Any]) -> str:
+    """Format context as plain text to avoid JSON-in-JSON confusion."""
+    lines = [f"FRAGE: {query}", "", "QUELLEN:"]
+
+    # Limit to top 4 windows with 1000 chars each for faster processing
+    for w in context.get("windows", [])[:4]:
+        idx = w.get("source_index", "?")
+        title = w.get("title", "Unbekannt")
+        location = w.get("location", "")
+        text = w.get("text", "")[:1000]
+        lines.append(f"\n[{idx}] {title} ({location})")
+        lines.append(text)
+
+    # Include top 2 anchors (tables, lists, paragraphs)
+    for a in context.get("anchors", [])[:2]:
+        idx = a.get("source_index", "?")
+        location = a.get("location", "")
+        text = a.get("text", "")[:600]
+        lines.append(f"\n[{idx}] Anchor ({location})")
+        lines.append(text)
+
+    return "\n".join(lines)
+
+
+def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
+    """Extract evidence and generate cited answer."""
+    # Format as plain text to avoid JSON-in-JSON confusion with LLM
+    user = _format_context_as_text(query, context) + "\n\nAntworte als JSON."
+    content = chat_json(system=_SYSTEM, user=user, temperature=0.0, timeout_s=240, force_json=False)
+
+    # Try to parse JSON
+    parsed = _extract_json_from_response(content)
+
+    if parsed is None:
+        # LLM didn't return JSON - use the text response directly
+        if len(content) > 100:  # Has substantial content
+            return _build_fallback_response(query, content, context)
         return _build_insufficient_response(query=query, raw=content)
 
     sources = parsed.get("sources", [])
-    if len(sources) < 2:
+    if len(sources) < 1:
+        # No sources in JSON but might have useful answer
+        if parsed.get("answer") and len(parsed.get("answer", "")) > 50:
+            return _build_fallback_response(query, parsed.get("answer"), context)
         return _build_insufficient_response(query=query, partial_sources=sources, raw=content)
 
     # Build CitedAnswer

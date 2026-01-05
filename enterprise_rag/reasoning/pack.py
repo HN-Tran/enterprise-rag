@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+# Limits to keep context within LLM token budget (~16K tokens ≈ 48K chars)
+MAX_TEXT_PER_SOURCE = 3000  # chars per source
+MAX_TOTAL_SOURCES = 8  # limit total sources
+
 
 def pack_context(
     query: str,
@@ -17,11 +21,19 @@ def pack_context(
     Each source gets a unique index for citation purposes.
     Windows are indexed first, then anchors, then cited documents.
     """
+    # Limit number of hits to avoid context overflow
+    hits = hits[:MAX_TOTAL_SOURCES]
+
     packed_hits = []
     for i, h in enumerate(hits, start=1):
         page_start = h["page_start"]
         page_end = h["page_end"]
         location = f"Seite {page_start}" if page_start == page_end else f"Seite {page_start}-{page_end}"
+
+        # Truncate text to stay within token budget
+        text = h["text"][:MAX_TEXT_PER_SOURCE]
+        if len(h["text"]) > MAX_TEXT_PER_SOURCE:
+            text += "..."
 
         packed_hits.append(
             {
@@ -34,14 +46,18 @@ def pack_context(
                 "location": location,
                 "page_start": page_start,
                 "page_end": page_end,
-                "text": h["text"],
+                "text": text,
             }
         )
 
-    # Continue numbering for anchors
+    # Continue numbering for anchors (limit to remaining budget)
+    remaining_budget = max(0, MAX_TOTAL_SOURCES - len(hits))
+    anchors = anchors[:remaining_budget]
+
     anchor_start_index = len(hits) + 1
     packed_anchors = []
     for i, a in enumerate(anchors, start=anchor_start_index):
+        text = a["text"][:MAX_TEXT_PER_SOURCE]
         packed_anchors.append(
             {
                 "source_index": i,
@@ -50,19 +66,20 @@ def pack_context(
                 "location": f"Seite {a['page_no']}, {a['anchor_type']}",
                 "page_no": a["page_no"],
                 "type": a["anchor_type"],
-                "text": a["text"],
+                "text": text,
             }
         )
 
-    # Continue numbering for cited documents (from citation chain)
+    # Continue numbering for cited documents (from citation chain) - limit to 2
     cited_start_index = anchor_start_index + len(anchors)
     packed_cited = []
     if cited_context:
-        for i, c in enumerate(cited_context, start=cited_start_index):
+        for i, c in enumerate(cited_context[:2], start=cited_start_index):
             page_start = c["page_start"]
             page_end = c["page_end"]
             location = f"Seite {page_start}" if page_start == page_end else f"Seite {page_start}-{page_end}"
 
+            text = c["text"][:MAX_TEXT_PER_SOURCE]
             packed_cited.append(
                 {
                     "source_index": i,
@@ -71,7 +88,7 @@ def pack_context(
                     "title": c.get("title") or "Unbekannt",
                     "uri": c.get("uri"),
                     "location": location,
-                    "text": c["text"],
+                    "text": text,
                     "relationship": "zitiert von Hauptquellen",
                 }
             )

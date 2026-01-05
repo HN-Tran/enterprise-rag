@@ -20,9 +20,10 @@ def main() -> None:
 
     print("PLAN:", result["plan"])
     print("HITS:", len(hits))
-    print("ANSWER:", ans.get("final_answer"))
-    if ans.get("evidence"):
-        print("EVIDENCE COUNT:", len(ans["evidence"]))
+    print("ANSWER:", ans.get("answer"))
+    print("CONFIDENCE:", ans.get("confidence"))
+    if ans.get("sources"):
+        print("SOURCES:", len(ans["sources"]))
 
 
 if __name__ == "__main__":

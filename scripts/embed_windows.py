@@ -41,9 +41,11 @@ def main() -> None:
         with get_conn() as conn:
             with conn.cursor() as cur:
                 for wid, v in zip(ids, vecs):
+                    # Ensure all values are floats (API may return ints for 0)
+                    v_float = [float(x) for x in v]
                     cur.execute(
                         "UPDATE windows SET embedding = %s WHERE window_id = %s",
-                        (v, wid),
+                        (v_float, wid),
                     )
             conn.commit()
         total += len(batch)

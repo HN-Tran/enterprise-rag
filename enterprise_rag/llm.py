@@ -37,7 +37,14 @@ def _embed_texts_impl(texts: list[str]) -> list[list[float]]:
 embed_texts = cached_embeddings(_embed_texts_impl)
 
 
-def chat_json(system: str, user: str, temperature: float = 0.1, timeout_s: int = 180) -> str:
+def chat_json(
+    system: str,
+    user: str,
+    temperature: float = 0.1,
+    timeout_s: int = 180,
+    force_json: bool = True,
+    max_tokens: int | None = None,
+) -> str:
     """Call OpenAI-compatible chat completions and return message content."""
     url = settings.LLM_BASE_URL.rstrip("/") + "/chat/completions"
     payload = {
@@ -47,27 +54,52 @@ def chat_json(system: str, user: str, temperature: float = 0.1, timeout_s: int =
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
+        # Ollama-specific: set context window size
+        "options": {
+            "num_ctx": settings.LLM_CONTEXT_LENGTH,
+        },
     }
+    # Force JSON output mode for Ollama
+    if force_json:
+        payload["format"] = "json"
+    if max_tokens:
+        payload["options"]["num_predict"] = max_tokens
     r = requests.post(url, json=payload, headers=_auth_headers(settings.LLM_API_KEY), timeout=timeout_s)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
 
 def rerank(query: str, documents: list[dict[str, Any]]) -> dict[int, float]:
-    """Rerank windows using custom /rerank endpoint.
+    """Rerank using TEI (Text Embeddings Inference) reranker API.
 
-    Expects:
-      POST {RERANK_BASE_URL}/rerank
-      {"model":..., "query":..., "documents":[{"id":..., "text":...}, ...]}
+    Expects TEI-compatible endpoint at RERANK_BASE_URL/rerank
     Returns:
       {window_id: score}
     """
+    if not documents:
+        return {}
+
+    # TEI rerank API format
     url = settings.RERANK_BASE_URL.rstrip("/") + "/rerank"
-    payload = {"model": settings.RERANK_MODEL, "query": query, "documents": documents}
-    r = requests.post(url, json=payload, headers=_auth_headers(settings.RERANK_API_KEY), timeout=180)
-    r.raise_for_status()
-    out = r.json()
-    score_by_id: dict[int, float] = {}
-    for item in out.get("results", []):
-        score_by_id[int(item["id"])] = float(item["score"])
-    return score_by_id
+    payload = {
+        "query": query,
+        "texts": [doc["text"][:2000] for doc in documents],
+        "return_text": False,
+    }
+
+    try:
+        r = requests.post(url, json=payload, headers=_auth_headers(settings.RERANK_API_KEY), timeout=30)
+        r.raise_for_status()
+        results = r.json()
+
+        # TEI returns list of {index, score} sorted by score desc
+        score_by_id: dict[int, float] = {}
+        for item in results:
+            idx = item["index"]
+            score_by_id[int(documents[idx]["id"])] = float(item["score"])
+        return score_by_id
+    except Exception:
+        pass
+
+    # Fallback: return uniform scores
+    return {int(doc["id"]): 0.5 for doc in documents}

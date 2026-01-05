@@ -47,7 +47,26 @@ services:
     environment:
       - COLLECTOR_OTLP_ENABLED=true
 
+  reranker:
+    image: ghcr.io/huggingface/text-embeddings-inference:1.5
+    ports:
+      - "9001:80"
+    volumes:
+      - tei_cache:/data
+    environment:
+      - MODEL_ID=BAAI/bge-reranker-v2-m3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # For CPU-only, comment above deploy section and use:
+    # image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+
 volumes:
   pgdata:
   neo4jdata:
   redis_data:
+  tei_cache:

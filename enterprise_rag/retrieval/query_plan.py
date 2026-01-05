@@ -23,6 +23,8 @@ Regeln:
 - 3-6 rewrites
 - bm25_query als keyword-orientierte Query (kurz)
 - categories nur wenn plausibel; sonst []
+- WICHTIG: Behalte Zahlen, Daten und Jahre EXAKT bei (z.B. "2024" bleibt "2024")
+- Erfinde KEINE neuen Zahlen oder Daten
 """
 
 

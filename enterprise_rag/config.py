@@ -25,15 +25,18 @@ class Settings(BaseSettings):
     EMBED_API_KEY: str = ""
     EMBED_DIM: int = 4096
 
-    # Reranker (custom endpoint)
-    RERANK_BASE_URL: str = "http://localhost:9001/v1"
-    RERANK_MODEL: str = "qwen3-reranker-8b"
+    # Reranker - TEI (Text Embeddings Inference) with cross-encoder model
+    # Much faster and more accurate than LLM-based reranking
+    RERANK_ENABLED: bool = True
+    RERANK_BASE_URL: str = "http://localhost:9001"  # TEI endpoint
+    RERANK_MODEL: str = "BAAI/bge-reranker-v2-m3"  # Configured in docker-compose
     RERANK_API_KEY: str = ""
 
     # LLM (query planning + evidence extraction + answer)
     LLM_BASE_URL: str = "http://localhost:11434/v1"
     LLM_MODEL: str = "qwen3-32b-instruct"
     LLM_API_KEY: str = ""
+    LLM_CONTEXT_LENGTH: int = 16000  # num_ctx for Ollama
 
     # Ingestion / windowing
     WINDOW_PAGES: int = 2
