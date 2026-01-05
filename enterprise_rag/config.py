@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     # Reranker limits
     RERANK_CHARS_PER_DOC: int = 2000  # Chars sent to reranker per document
 
+    # LLM output limits (prevents infinite generation)
+    LLM_MAX_ANSWER_TOKENS: int = 500  # Max tokens for answer generation
+
     # Connection pooling
     DB_POOL_MIN: int = 5
     DB_POOL_MAX: int = 20

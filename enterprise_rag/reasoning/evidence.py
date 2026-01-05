@@ -167,7 +167,15 @@ def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
     """Extract evidence and generate cited answer."""
     # Format as plain text to avoid JSON-in-JSON confusion with LLM
     user = _format_context_as_text(query, context) + "\n\nAntworte als JSON."
-    content = chat_json(system=_SYSTEM, user=user, temperature=0.0, timeout_s=240, force_json=False)
+    # max_tokens prevents infinite generation on complex queries
+    content = chat_json(
+        system=_SYSTEM,
+        user=user,
+        temperature=0.0,
+        timeout_s=120,  # Reduced timeout since we cap tokens
+        force_json=False,
+        max_tokens=settings.LLM_MAX_ANSWER_TOKENS,
+    )
 
     # Try to parse JSON
     parsed = _extract_json_from_response(content)
