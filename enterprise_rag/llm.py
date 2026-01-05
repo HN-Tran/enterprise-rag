@@ -7,12 +7,15 @@ which is usually custom in enterprise deployments.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Generator, Iterable, List
 
 import requests
 
 from enterprise_rag.cache import cached_embeddings
 from enterprise_rag.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:
@@ -150,8 +153,8 @@ def rerank(query: str, documents: list[dict[str, Any]]) -> dict[int, float]:
             idx = item["index"]
             score_by_id[int(documents[idx]["id"])] = float(item["score"])
         return score_by_id
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Reranker failed, using fallback scores: {e}")
 
-    # Fallback: return uniform scores
+    # Fallback: return uniform scores (maintains hybrid ordering)
     return {int(doc["id"]): 0.5 for doc in documents}

@@ -29,5 +29,6 @@ def rerank_windows(query: str, windows: list[dict[str, Any]]) -> list[dict[str, 
         w2["rerank"] = float(scores.get(int(w["window_id"]), 0.0))
         out.append(w2)
 
-    out.sort(key=lambda x: x["rerank"], reverse=True)
+    # Sort by rerank score, with window_id as tie-breaker for determinism
+    out.sort(key=lambda x: (x["rerank"], -x["window_id"]), reverse=True)
     return out

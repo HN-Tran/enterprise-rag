@@ -56,9 +56,16 @@ def is_simple_query(query: str) -> bool:
 
 def _plan_query_impl(query: str) -> dict:
     """Plan query using LLM (uncached implementation)."""
-    content = chat_json(system=_SYSTEM, user=query, temperature=0.1, timeout_s=120)
+    # Use temperature=0.0 for deterministic rewrites
+    content = chat_json(system=_SYSTEM, user=query, temperature=0.0, timeout_s=120)
     try:
-        return json.loads(content)
+        result = json.loads(content)
+        # Always include original query in rewrites for baseline retrieval
+        rewrites = result.get("rewrites", [])
+        if query not in rewrites:
+            rewrites.insert(0, query)
+        result["rewrites"] = rewrites
+        return result
     except Exception:
         return {"rewrites": [query], "bm25_query": query, "acronyms": {}, "categories": []}
 
