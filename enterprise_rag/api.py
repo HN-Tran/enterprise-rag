@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from enterprise_rag.log import setup_logging
@@ -16,7 +19,8 @@ from enterprise_rag.tasks.ingestion import enqueue_ingest, get_job_status
 from enterprise_rag.config import settings
 from enterprise_rag.neo4j_amp import Neo4jAmp
 from enterprise_rag.reasoning.pack import pack_context
-from enterprise_rag.reasoning.evidence import extract_and_answer
+from enterprise_rag.reasoning.evidence import extract_and_answer, stream_answer
+from enterprise_rag.retrieval.complexity import analyze_complexity, get_complexity_label
 
 
 app = FastAPI(
@@ -177,6 +181,11 @@ def ingest_status(job_id: str) -> dict:
 def search(req: SearchRequest) -> SearchResponse:
     result = retrieve(req.query)
     hits = result["hits"][: req.k]
+    plan = result.get("plan")
+
+    # Analyze query complexity for dynamic context sizing
+    complexity = analyze_complexity(req.query, plan)
+    complexity_label = get_complexity_label(complexity)
 
     # Optional Neo4j anchor expansion for top hits
     anchors: list[dict] = []
@@ -199,7 +208,7 @@ def search(req: SearchRequest) -> SearchResponse:
                     anchors = cur.fetchall()
 
     ctx = pack_context(req.query, hits, anchors)
-    answer_raw = extract_and_answer(req.query, ctx)
+    answer_raw = extract_and_answer(req.query, ctx, complexity=complexity)
 
     # Build cited sources from answer
     sources = [
@@ -251,5 +260,84 @@ def search(req: SearchRequest) -> SearchResponse:
             "plan": result.get("plan"),
             "total_hits": len(result.get("hits", [])),
             "sources_used": len(sources),
+            "complexity": complexity,
+            "complexity_label": complexity_label,
+        },
+    )
+
+
+@app.post("/search/stream")
+def search_stream(req: SearchRequest) -> StreamingResponse:
+    """Stream search results using Server-Sent Events.
+
+    Returns SSE events:
+    - event: sources - contains the source documents
+    - event: chunk - contains a text fragment of the answer
+    - event: done - signals completion
+    - event: error - contains error information
+
+    Example client usage:
+        const source = new EventSource('/search/stream', {method: 'POST', body: ...})
+        source.addEventListener('chunk', (e) => appendToAnswer(e.data))
+    """
+
+    def generate():
+        try:
+            # Retrieval phase
+            result = retrieve(req.query)
+            hits = result["hits"][: req.k]
+            plan = result.get("plan")
+
+            # Analyze query complexity for dynamic context sizing
+            complexity = analyze_complexity(req.query, plan)
+
+            # Send retrieval metadata
+            yield f"event: meta\ndata: {json.dumps({'complexity': complexity, 'hits': len(hits)})}\n\n"
+
+            # Optional Neo4j anchor expansion for top hits
+            anchors: list[dict] = []
+            if settings.USE_NEO4J and hits:
+                try:
+                    amp = Neo4jAmp.create()
+                    amp.ensure_schema()
+                    anchor_ids: list[int] = []
+                    for h in hits[: min(6, len(hits))]:
+                        anchor_ids.extend(amp.expand_anchor_ids(h["doc_id"], h["page_start"], h["page_end"]))
+                    amp.close()
+
+                    anchor_ids = sorted(set(anchor_ids))
+                    if anchor_ids:
+                        with get_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    "SELECT anchor_id, doc_id, page_no, anchor_type, text FROM anchors WHERE anchor_id = ANY(%s)",
+                                    (anchor_ids,),
+                                )
+                                anchors = cur.fetchall()
+                except Exception:
+                    pass  # Neo4j errors shouldn't break streaming
+
+            ctx = pack_context(req.query, hits, anchors)
+
+            # Stream the answer
+            for event in stream_answer(req.query, ctx, complexity=complexity):
+                event_type = event.get("type", "chunk")
+                if event_type == "sources":
+                    yield f"event: sources\ndata: {json.dumps(event['sources'])}\n\n"
+                elif event_type == "chunk":
+                    yield f"event: chunk\ndata: {json.dumps(event['chunk'])}\n\n"
+                elif event_type == "done":
+                    yield f"event: done\ndata: {json.dumps({'status': 'complete'})}\n\n"
+
+        except Exception as e:
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
         },
     )

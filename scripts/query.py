@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from enterprise_rag.retrieval.hybrid import retrieve
+from enterprise_rag.retrieval.complexity import analyze_complexity, get_complexity_label
 from enterprise_rag.reasoning.pack import pack_context
 from enterprise_rag.reasoning.evidence import extract_and_answer
 
@@ -15,10 +16,17 @@ def main() -> None:
 
     result = retrieve(args.q)
     hits = result["hits"][: args.k]
-    ctx = pack_context(args.q, hits, [])
-    ans = extract_and_answer(args.q, ctx)
+    plan = result.get("plan")
 
-    print("PLAN:", result["plan"])
+    # Analyze query complexity for dynamic context sizing
+    complexity = analyze_complexity(args.q, plan)
+    complexity_label = get_complexity_label(complexity)
+
+    ctx = pack_context(args.q, hits, [])
+    ans = extract_and_answer(args.q, ctx, complexity=complexity)
+
+    print("PLAN:", plan)
+    print("COMPLEXITY:", f"{complexity:.2f} ({complexity_label})")
     print("HITS:", len(hits))
     print("ANSWER:", ans.get("answer"))
     print("CONFIDENCE:", ans.get("confidence"))

@@ -6,8 +6,8 @@ import json
 from dataclasses import asdict
 from typing import Any
 
-from enterprise_rag.config import settings
-from enterprise_rag.llm import chat_json
+from enterprise_rag.config import get_effective_limits, settings
+from enterprise_rag.llm import chat_json, chat_stream
 from enterprise_rag.models import CitedAnswer, SourceCitation
 
 _SYSTEM = """\
@@ -139,42 +139,69 @@ def _build_fallback_response(query: str, content: str, context: dict[str, Any]) 
     ))
 
 
-def _format_context_as_text(query: str, context: dict[str, Any]) -> str:
+def _format_context_as_text(
+    query: str,
+    context: dict[str, Any],
+    limits: dict[str, Any] | None = None,
+) -> str:
     """Format context as plain text to avoid JSON-in-JSON confusion."""
+    if limits is None:
+        limits = get_effective_limits()
+
+    max_windows = limits.get("evidence_max_windows", settings.EVIDENCE_MAX_WINDOWS)
+    chars_per_window = limits.get("evidence_chars_per_window", settings.EVIDENCE_CHARS_PER_WINDOW)
+    max_anchors = limits.get("evidence_max_anchors", settings.EVIDENCE_MAX_ANCHORS)
+    chars_per_anchor = limits.get("evidence_chars_per_anchor", settings.EVIDENCE_CHARS_PER_ANCHOR)
+
     lines = [f"FRAGE: {query}", "", "QUELLEN:"]
 
     # Windows (main document chunks)
-    for w in context.get("windows", [])[:settings.EVIDENCE_MAX_WINDOWS]:
+    for w in context.get("windows", [])[:max_windows]:
         idx = w.get("source_index", "?")
         title = w.get("title", "Unbekannt")
         location = w.get("location", "")
-        text = w.get("text", "")[:settings.EVIDENCE_CHARS_PER_WINDOW]
+        text = w.get("text", "")[:chars_per_window]
         lines.append(f"\n[{idx}] {title} ({location})")
         lines.append(text)
 
     # Anchors (tables, lists, paragraphs)
-    for a in context.get("anchors", [])[:settings.EVIDENCE_MAX_ANCHORS]:
+    for a in context.get("anchors", [])[:max_anchors]:
         idx = a.get("source_index", "?")
         location = a.get("location", "")
-        text = a.get("text", "")[:settings.EVIDENCE_CHARS_PER_ANCHOR]
+        text = a.get("text", "")[:chars_per_anchor]
         lines.append(f"\n[{idx}] Anchor ({location})")
         lines.append(text)
 
     return "\n".join(lines)
 
 
-def extract_and_answer(query: str, context: dict[str, Any]) -> dict[str, Any]:
-    """Extract evidence and generate cited answer."""
+def extract_and_answer(
+    query: str,
+    context: dict[str, Any],
+    complexity: float = 1.0,
+) -> dict[str, Any]:
+    """Extract evidence and generate cited answer.
+
+    Args:
+        query: User query
+        context: Packed context from pack_context()
+        complexity: Query complexity score for dynamic sizing (0.5 - 1.5+)
+    """
+    # Get dynamic limits based on complexity
+    limits = get_effective_limits(complexity)
+
     # Format as plain text to avoid JSON-in-JSON confusion with LLM
-    user = _format_context_as_text(query, context) + "\n\nAntworte als JSON."
+    user = _format_context_as_text(query, context, limits) + "\n\nAntworte als JSON."
+
     # max_tokens prevents infinite generation on complex queries
+    max_tokens = limits.get("max_answer_tokens", settings.LLM_MAX_ANSWER_TOKENS)
     content = chat_json(
         system=_SYSTEM,
         user=user,
         temperature=0.0,
         timeout_s=120,  # Reduced timeout since we cap tokens
         force_json=False,
-        max_tokens=settings.LLM_MAX_ANSWER_TOKENS,
+        max_tokens=max_tokens,
     )
 
     # Try to parse JSON
@@ -257,3 +284,68 @@ def _build_insufficient_response(
     if raw:
         result["raw"] = raw
     return result
+
+
+# Streaming support - uses plain text output for better UX
+_STREAM_SYSTEM = """\
+Du bist ein präziser Frage-Antwort-Assistent für Unternehmensdokumente.
+
+REGELN:
+1. Beantworte die Frage DIREKT in 1-3 Sätzen
+2. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
+3. Verwende Quellenverweise [1], [2] im Text, um auf die Quellen zu verweisen
+4. Sei präzise und faktisch - keine Spekulationen
+
+Wenn KEINE belastbaren Belege vorhanden sind, antworte:
+"Nicht genügend belastbare Belege im Korpus gefunden."
+"""
+
+
+def stream_answer(
+    query: str,
+    context: dict[str, Any],
+    complexity: float = 1.0,
+):
+    """Stream the answer generation, yielding text chunks.
+
+    For streaming, we use plain text output (not JSON) for better UX.
+    Sources are pre-computed from the context.
+
+    Yields:
+        dict with either 'chunk' (text fragment) or 'sources' (list of sources)
+    """
+    from typing import Generator
+
+    # Get dynamic limits based on complexity
+    limits = get_effective_limits(complexity)
+
+    # First, yield the sources so the UI can display them
+    windows = context.get("windows", [])[:limits.get("evidence_max_windows", 4)]
+    sources = [
+        {
+            "index": w.get("source_index", i + 1),
+            "doc_id": w.get("doc_id", ""),
+            "title": w.get("title", "Unbekannt"),
+            "location": w.get("location", ""),
+            "snippet": w.get("text", "")[:200],
+        }
+        for i, w in enumerate(windows)
+    ]
+    yield {"type": "sources", "sources": sources}
+
+    # Format context as plain text
+    user = _format_context_as_text(query, context, limits)
+
+    # Stream the answer
+    max_tokens = limits.get("max_answer_tokens", settings.LLM_MAX_ANSWER_TOKENS)
+    for chunk in chat_stream(
+        system=_STREAM_SYSTEM,
+        user=user,
+        temperature=0.0,
+        timeout_s=120,
+        max_tokens=max_tokens,
+    ):
+        yield {"type": "chunk", "chunk": chunk}
+
+    # Signal completion
+    yield {"type": "done"}

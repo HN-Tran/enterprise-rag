@@ -6,7 +6,8 @@ which is usually custom in enterprise deployments.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List
+import json
+from typing import Any, Generator, Iterable, List
 
 import requests
 
@@ -67,6 +68,57 @@ def chat_json(
     r = requests.post(url, json=payload, headers=_auth_headers(settings.LLM_API_KEY), timeout=timeout_s)
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
+
+
+def chat_stream(
+    system: str,
+    user: str,
+    temperature: float = 0.1,
+    timeout_s: int = 180,
+    max_tokens: int | None = None,
+) -> Generator[str, None, None]:
+    """Stream chat completions, yielding text chunks as they arrive.
+
+    Uses Server-Sent Events (SSE) format from OpenAI-compatible endpoints.
+    """
+    url = settings.LLM_BASE_URL.rstrip("/") + "/chat/completions"
+    payload = {
+        "model": settings.LLM_MODEL,
+        "temperature": temperature,
+        "stream": True,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "options": {
+            "num_ctx": settings.LLM_CONTEXT_LENGTH,
+        },
+    }
+    if max_tokens:
+        payload["options"]["num_predict"] = max_tokens
+
+    with requests.post(
+        url,
+        json=payload,
+        headers=_auth_headers(settings.LLM_API_KEY),
+        timeout=timeout_s,
+        stream=True,
+    ) as r:
+        r.raise_for_status()
+        for line in r.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data: "):
+                continue
+            data = line[6:]  # Remove "data: " prefix
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    yield content
+            except json.JSONDecodeError:
+                continue
 
 
 def rerank(query: str, documents: list[dict[str, Any]]) -> dict[int, float]:
