@@ -81,11 +81,18 @@ def get_conn() -> Generator[psycopg.Connection, None, None]:
 
 
 def exec_script(sql: str) -> None:
-    """Execute a multi-statement SQL script."""
-    with get_conn() as conn:
+    """Execute a multi-statement SQL script.
+
+    Uses a raw connection without vector registration since this is
+    typically used for schema setup (which creates the vector extension).
+    """
+    conn = psycopg.connect(settings.PG_DSN, row_factory=dict_row)
+    try:
         with conn.cursor() as cur:
             cur.execute(sql)
         conn.commit()
+    finally:
+        conn.close()
 
 
 def fetch_all(sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
