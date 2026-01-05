@@ -55,3 +55,4 @@ uploads/
 
 # Jupyter
 .ipynb_checkpoints/
+.env.prod
