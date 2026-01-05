@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.llm import rerank
+from enterprise_rag.llm import rerank
 
 
 def rerank_windows(query: str, windows: list[dict[str, Any]]) -> list[dict[str, Any]]:

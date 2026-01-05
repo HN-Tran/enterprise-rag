@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config import settings
-from app.db import get_conn
-from app.neo4j_amp import Neo4jAmp
+from enterprise_rag.config import settings
+from enterprise_rag.db import get_conn
+from enterprise_rag.neo4j_amp import Neo4jAmp
 
 
 def expand_with_citations(

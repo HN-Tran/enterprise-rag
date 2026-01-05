@@ -10,7 +10,7 @@ from typing import Any
 
 from neo4j import GraphDatabase
 
-from app.config import settings
+from enterprise_rag.config import settings
 
 
 @dataclass

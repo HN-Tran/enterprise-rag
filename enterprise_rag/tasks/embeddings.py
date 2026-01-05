@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.log import get_logger
-from app.tasks import get_embedding_queue
+from enterprise_rag.log import get_logger
+from enterprise_rag.tasks import get_embedding_queue
 
 logger = get_logger(__name__)
 
@@ -40,9 +40,9 @@ def embed_batch_task(window_ids: list[int]) -> dict[str, Any]:
     """
     import numpy as np
 
-    from app.db import get_conn, init_pool, close_pool
-    from app.llm import embed_texts
-    from app.log import setup_logging
+    from enterprise_rag.db import get_conn, init_pool, close_pool
+    from enterprise_rag.llm import embed_texts
+    from enterprise_rag.log import setup_logging
 
     # Set up logging and DB pool for worker
     setup_logging()
@@ -107,7 +107,7 @@ def enqueue_all_pending_embeddings(batch_size: int = 64) -> list[dict[str, Any]]
 
     Returns list of job info dicts.
     """
-    from app.db import get_conn
+    from enterprise_rag.db import get_conn
 
     # Find windows without embeddings
     with get_conn() as conn:

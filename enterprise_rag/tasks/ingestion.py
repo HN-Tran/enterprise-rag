@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.log import get_logger
-from app.tasks import get_default_queue, is_queue_available
+from enterprise_rag.log import get_logger
+from enterprise_rag.tasks import get_default_queue, is_queue_available
 
 logger = get_logger(__name__)
 
@@ -22,7 +22,7 @@ def enqueue_ingest(file_path: str) -> dict[str, Any]:
     if queue is None:
         # Fall back to synchronous ingestion
         logger.info("ingest_sync_fallback", path=file_path)
-        from app.ingestion.ingest import ingest_path
+        from enterprise_rag.ingestion.ingest import ingest_path
 
         return {"status": "sync", **ingest_path(file_path)}
 
@@ -42,9 +42,9 @@ def ingest_file_task(file_path: str) -> dict[str, Any]:
 
     This runs in a worker process.
     """
-    from app.db import init_pool, close_pool
-    from app.ingestion.ingest import ingest_path
-    from app.log import setup_logging
+    from enterprise_rag.db import init_pool, close_pool
+    from enterprise_rag.ingestion.ingest import ingest_path
+    from enterprise_rag.log import setup_logging
 
     # Set up logging and DB pool for worker
     setup_logging()
@@ -70,7 +70,7 @@ def ingest_file_task(file_path: str) -> dict[str, Any]:
 
 def get_job_status(job_id: str) -> dict[str, Any]:
     """Get the status of an ingestion job."""
-    from app.tasks import get_redis_connection
+    from enterprise_rag.tasks import get_redis_connection
 
     redis_conn = get_redis_connection()
     if redis_conn is None:

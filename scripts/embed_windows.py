@@ -5,8 +5,8 @@ from typing import Any
 
 from tqdm import tqdm
 
-from app.db import get_conn
-from app.llm import embed_texts
+from enterprise_rag.db import get_conn
+from enterprise_rag.llm import embed_texts
 
 
 def main() -> None:

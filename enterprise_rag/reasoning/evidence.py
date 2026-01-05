@@ -6,8 +6,8 @@ import json
 from dataclasses import asdict
 from typing import Any
 
-from app.llm import chat_json
-from app.models import CitedAnswer, SourceCitation
+from enterprise_rag.llm import chat_json
+from enterprise_rag.models import CitedAnswer, SourceCitation
 
 _SYSTEM = """\
 Du bist ein Evidence Extractor + Answerer für Enterprise-RAG (Deutsch).

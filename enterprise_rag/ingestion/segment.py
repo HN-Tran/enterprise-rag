@@ -6,8 +6,8 @@ import hashlib
 from dataclasses import dataclass
 from typing import List
 
-from app.config import settings
-from app.ingestion.normalize import clamp, norm_text
+from enterprise_rag.config import settings
+from enterprise_rag.ingestion.normalize import clamp, norm_text
 
 
 def _sha32(text: str) -> str:

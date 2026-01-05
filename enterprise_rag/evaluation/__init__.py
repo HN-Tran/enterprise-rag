@@ -1,12 +1,12 @@
 """Evaluation framework for Enterprise RAG."""
 
-from app.evaluation.metrics import (
+from enterprise_rag.evaluation.metrics import (
     RetrievalMetrics,
     CitationMetrics,
     compute_retrieval_metrics,
     compute_citation_metrics,
 )
-from app.evaluation.harness import EvaluationHarness, EvaluationResult
+from enterprise_rag.evaluation.harness import EvaluationHarness, EvaluationResult
 
 __all__ = [
     "RetrievalMetrics",

@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import re
 
-from app.cache import cached_query_plan
-from app.llm import chat_json
+from enterprise_rag.cache import cached_query_plan
+from enterprise_rag.llm import chat_json
 
 _SYSTEM = """\
 Du bist ein Query Planner für Enterprise-RAG (Deutsch, Behörden-/Unternehmensdokumente).

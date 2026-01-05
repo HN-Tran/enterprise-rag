@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from app.retrieval.hybrid import retrieve
-from app.reasoning.pack import pack_context
-from app.reasoning.evidence import extract_and_answer
+from enterprise_rag.retrieval.hybrid import retrieve
+from enterprise_rag.reasoning.pack import pack_context
+from enterprise_rag.reasoning.evidence import extract_and_answer
 
 
 def main() -> None:

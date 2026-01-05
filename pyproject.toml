@@ -72,18 +72,16 @@ dev = [
   "ipython>=8.30.0",
 ]
 
-[project.scripts]
-enterprise_rag-ingest-folder = "neo4j_asgi.scripts.ingest_folder:main"
-enterprise_rag-embed_windows = "neo4j_asgi.scripts.embed_windows:main"
-enterprise_rag-init_db = "neo4j_asgi.scripts.init_db:main"
-enterprise_rag-query = "neo4j_asgi.scripts.query:main"
+# Entry points (run via: python scripts/<name>.py)
+# [project.scripts]
+# enterprise-rag-ingest = "scripts.ingest_folder:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["enterprise_rag"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-  "app/**",
+  "enterprise_rag/**",
   "scripts/**",
   "README.md",
   "pyproject.toml",

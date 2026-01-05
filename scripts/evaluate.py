@@ -15,7 +15,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.evaluation import EvaluationHarness, TestCase
+from enterprise_rag.evaluation import EvaluationHarness, TestCase
 
 
 def create_sample_test_file(path: Path) -> None:

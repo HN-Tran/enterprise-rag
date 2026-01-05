@@ -18,8 +18,8 @@ import sys
 from redis import Redis
 from rq import Worker
 
-from app.config import settings
-from app.log import setup_logging, get_logger
+from enterprise_rag.config import settings
+from enterprise_rag.log import setup_logging, get_logger
 
 # Set up logging before anything else
 setup_logging()

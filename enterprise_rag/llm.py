@@ -10,8 +10,8 @@ from typing import Any, Iterable, List
 
 import requests
 
-from app.cache import cached_embeddings
-from app.config import settings
+from enterprise_rag.cache import cached_embeddings
+from enterprise_rag.config import settings
 
 
 def _auth_headers(api_key: str) -> dict[str, str]:

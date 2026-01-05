@@ -7,7 +7,7 @@ import json
 from functools import wraps
 from typing import Any, Callable, TypeVar
 
-from app.config import settings
+from enterprise_rag.config import settings
 
 # Optional Redis import - gracefully degrade if not available
 try:

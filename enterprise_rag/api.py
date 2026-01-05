@@ -5,18 +5,18 @@ from __future__ import annotations
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from app.log import setup_logging
-from app.ingestion.ingest import ingest_path
-from app.retrieval.hybrid import retrieve
-from app.db import get_conn, init_pool, close_pool
-from app.cache import init_cache, close_cache, is_cache_available, get_cache_stats
-from app.telemetry import setup_telemetry, shutdown_telemetry
-from app.tasks import init_queues
-from app.tasks.ingestion import enqueue_ingest, get_job_status
-from app.config import settings
-from app.neo4j_amp import Neo4jAmp
-from app.reasoning.pack import pack_context
-from app.reasoning.evidence import extract_and_answer
+from enterprise_rag.log import setup_logging
+from enterprise_rag.ingestion.ingest import ingest_path
+from enterprise_rag.retrieval.hybrid import retrieve
+from enterprise_rag.db import get_conn, init_pool, close_pool
+from enterprise_rag.cache import init_cache, close_cache, is_cache_available, get_cache_stats
+from enterprise_rag.telemetry import setup_telemetry, shutdown_telemetry
+from enterprise_rag.tasks import init_queues
+from enterprise_rag.tasks.ingestion import enqueue_ingest, get_job_status
+from enterprise_rag.config import settings
+from enterprise_rag.neo4j_amp import Neo4jAmp
+from enterprise_rag.reasoning.pack import pack_context
+from enterprise_rag.reasoning.evidence import extract_and_answer
 
 
 app = FastAPI(

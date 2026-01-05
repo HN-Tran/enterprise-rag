@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 import hashlib
 
-from app.config import settings
-from app.db import get_conn, make_doc_id, sha256_file
-from app.ingestion.extractors import extract_any
-from app.ingestion.normalize import norm_text
-from app.ingestion.segment import build_anchors, build_windows
-from app.ingestion.citations import extract_citations, ExtractedCitation
-from app.neo4j_amp import Neo4jAmp
+from enterprise_rag.config import settings
+from enterprise_rag.db import get_conn, make_doc_id, sha256_file
+from enterprise_rag.ingestion.extractors import extract_any
+from enterprise_rag.ingestion.normalize import norm_text
+from enterprise_rag.ingestion.segment import build_anchors, build_windows
+from enterprise_rag.ingestion.citations import extract_citations, ExtractedCitation
+from enterprise_rag.neo4j_amp import Neo4jAmp
 
 
 def _sha256_text(s: str) -> str:

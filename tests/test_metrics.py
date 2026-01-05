@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.evaluation.metrics import (
+from enterprise_rag.evaluation.metrics import (
     compute_retrieval_metrics,
     compute_citation_metrics,
 )

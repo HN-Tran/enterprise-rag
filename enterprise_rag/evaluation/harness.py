@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.evaluation.metrics import (
+from enterprise_rag.evaluation.metrics import (
     RetrievalMetrics,
     CitationMetrics,
     compute_retrieval_metrics,
@@ -135,8 +135,8 @@ class EvaluationHarness:
     def run(self, verbose: bool = False) -> EvaluationResult:
         """Run all test cases and return aggregated results."""
         if self.search_fn is None:
-            from app.api import search
-            from app.api import SearchRequest
+            from enterprise_rag.api import search
+            from enterprise_rag.api import SearchRequest
             self.search_fn = lambda q: search(SearchRequest(query=q, k=10))
 
         results: list[TestResult] = []

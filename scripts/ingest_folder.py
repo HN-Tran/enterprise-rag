@@ -5,7 +5,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-from app.ingestion.ingest import ingest_path
+from enterprise_rag.ingestion.ingest import ingest_path
 
 
 def main() -> None:

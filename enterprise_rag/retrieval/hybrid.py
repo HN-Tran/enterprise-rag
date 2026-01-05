@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config import settings
-from app.db import get_conn
-from app.retrieval.postgres_retrieval import bm25_candidates, vector_candidates
-from app.retrieval.query_plan import plan_query
-from app.retrieval.rerank import rerank_windows
-from app.retrieval.citation_expand import expand_with_citations
+from enterprise_rag.config import settings
+from enterprise_rag.db import get_conn
+from enterprise_rag.retrieval.postgres_retrieval import bm25_candidates, vector_candidates
+from enterprise_rag.retrieval.query_plan import plan_query
+from enterprise_rag.retrieval.rerank import rerank_windows
+from enterprise_rag.retrieval.citation_expand import expand_with_citations
 
 
 def _hydrate_docs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

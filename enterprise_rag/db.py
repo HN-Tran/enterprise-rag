@@ -12,7 +12,7 @@ from pgvector.psycopg import register_vector
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from app.config import settings
+from enterprise_rag.config import settings
 
 # Global connection pool
 _pool: ConnectionPool | None = None

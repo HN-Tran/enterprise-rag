@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config import settings
-from app.db import get_conn
-from app.llm import embed_texts
+from enterprise_rag.config import settings
+from enterprise_rag.db import get_conn
+from enterprise_rag.llm import embed_texts
 
 
 def bm25_candidates(query: str, categories: list[str] | None, k: int) -> list[dict[str, Any]]:

@@ -9,7 +9,7 @@ from typing import List
 import trafilatura
 from bs4 import BeautifulSoup
 
-from app.ingestion.citations import EmbeddedLink
+from enterprise_rag.ingestion.citations import EmbeddedLink
 
 
 @dataclass(frozen=True)

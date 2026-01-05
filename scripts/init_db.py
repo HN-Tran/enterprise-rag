@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from app.db import exec_script
+from enterprise_rag.db import exec_script
 
 def main() -> None:
     schema = Path("sql/schema.sql").read_text(encoding="utf-8")

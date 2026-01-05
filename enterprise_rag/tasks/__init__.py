@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from app.config import settings
-from app.log import get_logger
+from enterprise_rag.config import settings
+from enterprise_rag.log import get_logger
 
 if TYPE_CHECKING:
     from redis import Redis
