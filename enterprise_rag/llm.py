@@ -83,7 +83,7 @@ def rerank(query: str, documents: list[dict[str, Any]]) -> dict[int, float]:
     url = settings.RERANK_BASE_URL.rstrip("/") + "/rerank"
     payload = {
         "query": query,
-        "texts": [doc["text"][:2000] for doc in documents],
+        "texts": [doc["text"][:settings.RERANK_CHARS_PER_DOC] for doc in documents],
         "return_text": False,
     }
 

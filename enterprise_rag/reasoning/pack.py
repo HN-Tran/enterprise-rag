@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-# Limits to keep context within LLM token budget (~16K tokens ≈ 48K chars)
-MAX_TEXT_PER_SOURCE = 3000  # chars per source
-MAX_TOTAL_SOURCES = 8  # limit total sources
+from enterprise_rag.config import settings
 
 
 def pack_context(
@@ -22,7 +20,7 @@ def pack_context(
     Windows are indexed first, then anchors, then cited documents.
     """
     # Limit number of hits to avoid context overflow
-    hits = hits[:MAX_TOTAL_SOURCES]
+    hits = hits[:settings.PACK_MAX_SOURCES]
 
     packed_hits = []
     for i, h in enumerate(hits, start=1):
@@ -31,8 +29,8 @@ def pack_context(
         location = f"Seite {page_start}" if page_start == page_end else f"Seite {page_start}-{page_end}"
 
         # Truncate text to stay within token budget
-        text = h["text"][:MAX_TEXT_PER_SOURCE]
-        if len(h["text"]) > MAX_TEXT_PER_SOURCE:
+        text = h["text"][:settings.PACK_CHARS_PER_SOURCE]
+        if len(h["text"]) > settings.PACK_CHARS_PER_SOURCE:
             text += "..."
 
         packed_hits.append(
@@ -51,13 +49,13 @@ def pack_context(
         )
 
     # Continue numbering for anchors (limit to remaining budget)
-    remaining_budget = max(0, MAX_TOTAL_SOURCES - len(hits))
+    remaining_budget = max(0, settings.PACK_MAX_SOURCES - len(hits))
     anchors = anchors[:remaining_budget]
 
     anchor_start_index = len(hits) + 1
     packed_anchors = []
     for i, a in enumerate(anchors, start=anchor_start_index):
-        text = a["text"][:MAX_TEXT_PER_SOURCE]
+        text = a["text"][:settings.PACK_CHARS_PER_SOURCE]
         packed_anchors.append(
             {
                 "source_index": i,
@@ -70,16 +68,16 @@ def pack_context(
             }
         )
 
-    # Continue numbering for cited documents (from citation chain) - limit to 2
+    # Continue numbering for cited documents (from citation chain)
     cited_start_index = anchor_start_index + len(anchors)
     packed_cited = []
     if cited_context:
-        for i, c in enumerate(cited_context[:2], start=cited_start_index):
+        for i, c in enumerate(cited_context[:settings.PACK_MAX_CITED_DOCS], start=cited_start_index):
             page_start = c["page_start"]
             page_end = c["page_end"]
             location = f"Seite {page_start}" if page_start == page_end else f"Seite {page_start}-{page_end}"
 
-            text = c["text"][:MAX_TEXT_PER_SOURCE]
+            text = c["text"][:settings.PACK_CHARS_PER_SOURCE]
             packed_cited.append(
                 {
                     "source_index": i,

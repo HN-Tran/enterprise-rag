@@ -49,9 +49,27 @@ class Settings(BaseSettings):
     CANDIDATES_VEC: int = 120
     RERANK_KEEP: int = 18
     MAX_PER_DOC: int = 2
+    MAX_QUERY_REWRITES: int = 6  # Max query variations for BM25
 
     # Category boosting
     CATEGORY_BOOST: float = 1.20
+
+    # Context packing (pack.py) - how much context to send to LLM
+    PACK_MAX_SOURCES: int = 8  # Max windows to pack
+    PACK_CHARS_PER_SOURCE: int = 3000  # Chars per window
+    PACK_MAX_CITED_DOCS: int = 2  # Max cited documents from graph
+
+    # Evidence extraction (evidence.py) - context sent for answer generation
+    # These can be lower than packing limits for faster responses
+    EVIDENCE_MAX_WINDOWS: int = 4  # Windows sent to LLM for answering
+    EVIDENCE_CHARS_PER_WINDOW: int = 1000  # Chars per window
+    EVIDENCE_MAX_ANCHORS: int = 2  # Anchors (tables, lists) sent to LLM
+    EVIDENCE_CHARS_PER_ANCHOR: int = 600  # Chars per anchor
+    EVIDENCE_FALLBACK_ANSWER_CHARS: int = 3000  # Max chars for fallback answers
+    EVIDENCE_FALLBACK_SNIPPET_CHARS: int = 200  # Snippet length in fallback
+
+    # Reranker limits
+    RERANK_CHARS_PER_DOC: int = 2000  # Chars sent to reranker per document
 
     # Connection pooling
     DB_POOL_MIN: int = 5

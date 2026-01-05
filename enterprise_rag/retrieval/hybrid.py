@@ -78,7 +78,7 @@ def retrieve(query: str, expand_citations: bool = True) -> dict[str, Any]:
     bm_all: list[dict[str, Any]] = []
     vc_all: list[dict[str, Any]] = []
 
-    for rq in rewrites[:6]:
+    for rq in rewrites[:settings.MAX_QUERY_REWRITES]:
         bm_all.extend(bm25_candidates(rq, cats, settings.CANDIDATES_BM25))
         vc_all.extend(vector_candidates(rq, settings.CANDIDATES_VEC))
 

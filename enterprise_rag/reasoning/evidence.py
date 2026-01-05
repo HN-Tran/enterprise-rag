@@ -6,6 +6,7 @@ import json
 from dataclasses import asdict
 from typing import Any
 
+from enterprise_rag.config import settings
 from enterprise_rag.llm import chat_json
 from enterprise_rag.models import CitedAnswer, SourceCitation
 
@@ -124,13 +125,13 @@ def _build_fallback_response(query: str, content: str, context: dict[str, Any]) 
             doc_id=w.get("doc_id", ""),
             title=w.get("title", "Unbekannt"),
             location=w.get("location", ""),
-            snippet=w.get("text", "")[:200],
+            snippet=w.get("text", "")[:settings.EVIDENCE_FALLBACK_SNIPPET_CHARS],
             confidence=0.7,
             uri=w.get("uri"),
         ))
 
     return asdict(CitedAnswer(
-        answer=content[:3000],  # Use the markdown response as answer
+        answer=content[:settings.EVIDENCE_FALLBACK_ANSWER_CHARS],
         confidence="medium",
         sources=sources,
         evidence_count=len(sources),
@@ -142,20 +143,20 @@ def _format_context_as_text(query: str, context: dict[str, Any]) -> str:
     """Format context as plain text to avoid JSON-in-JSON confusion."""
     lines = [f"FRAGE: {query}", "", "QUELLEN:"]
 
-    # Limit to top 4 windows with 1000 chars each for faster processing
-    for w in context.get("windows", [])[:4]:
+    # Windows (main document chunks)
+    for w in context.get("windows", [])[:settings.EVIDENCE_MAX_WINDOWS]:
         idx = w.get("source_index", "?")
         title = w.get("title", "Unbekannt")
         location = w.get("location", "")
-        text = w.get("text", "")[:1000]
+        text = w.get("text", "")[:settings.EVIDENCE_CHARS_PER_WINDOW]
         lines.append(f"\n[{idx}] {title} ({location})")
         lines.append(text)
 
-    # Include top 2 anchors (tables, lists, paragraphs)
-    for a in context.get("anchors", [])[:2]:
+    # Anchors (tables, lists, paragraphs)
+    for a in context.get("anchors", [])[:settings.EVIDENCE_MAX_ANCHORS]:
         idx = a.get("source_index", "?")
         location = a.get("location", "")
-        text = a.get("text", "")[:600]
+        text = a.get("text", "")[:settings.EVIDENCE_CHARS_PER_ANCHOR]
         lines.append(f"\n[{idx}] Anchor ({location})")
         lines.append(text)
 
