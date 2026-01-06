@@ -84,8 +84,9 @@ def retrieve(query: str, expand_citations: bool = True) -> dict[str, Any]:
 
     merged = _union_candidates(bm_all, vc_all)
 
-    # Rerank top pool
-    pool = merged[: max(settings.RERANK_KEEP * 10, 80)]
+    # Rerank top pool - limit to avoid payload size issues with reranker
+    # TEI has max_batch_tokens=16384, so keep pool small
+    pool = merged[: min(settings.RERANK_KEEP * 2, 30)]
     reranked = rerank_windows(query, pool)[: settings.RERANK_KEEP]
 
     reranked = _hydrate_docs(reranked)

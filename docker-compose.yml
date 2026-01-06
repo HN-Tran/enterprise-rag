@@ -48,22 +48,31 @@ services:
       - COLLECTOR_OTLP_ENABLED=true
 
   reranker:
-    image: ghcr.io/huggingface/text-embeddings-inference:1.5
+    # CPU version avoids GPU contention with Ollama
+    # Cross-encoders are fast on CPU unlike LLMs
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.3
     ports:
       - "9001:80"
     volumes:
       - tei_cache:/data
     environment:
       - MODEL_ID=BAAI/bge-reranker-v2-m3
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    # For CPU-only, comment above deploy section and use:
-    # image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    # For GPU version (if you have a dedicated GPU):
+    # image: ghcr.io/huggingface/text-embeddings-inference:1.8.3
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
 
 volumes:
   pgdata:
