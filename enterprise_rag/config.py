@@ -129,8 +129,10 @@ class Settings(BaseSettings):
     EVIDENCE_FALLBACK_ANSWER_CHARS: int = 3000  # Max chars for fallback answers
     EVIDENCE_FALLBACK_SNIPPET_CHARS: int = 200  # Snippet length in fallback
 
-    # Reranker limits (TEI has max_batch_tokens=16384, keep payload small)
-    RERANK_CHARS_PER_DOC: int = 512  # Chars sent to reranker per document
+    # Reranker limits
+    # bge-reranker-v2-m3 has max 512 tokens per pair ≈ 1500 chars
+    # TEI max_batch_tokens=16384, so limit pool to ~30 docs
+    RERANK_CHARS_PER_DOC: int = 1500  # Chars sent to reranker per document
 
     # LLM output limits (prevents infinite generation)
     LLM_MAX_ANSWER_TOKENS: int = 500  # Max tokens for answer generation
