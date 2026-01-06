@@ -32,9 +32,10 @@ EMBED_MODEL=qwen3-embedding-8b
 LLM_BASE_URL=http://localhost:11434/v1
 LLM_MODEL=qwen3-32b-instruct
 
-# Optional: Reranker (improves result quality)
-RERANK_BASE_URL=http://localhost:9001/v1
-RERANK_MODEL=qwen3-reranker-8b
+# Reranker - TEI with cross-encoder (runs via docker-compose)
+RERANK_ENABLED=true
+RERANK_BASE_URL=http://localhost:9001
+RERANK_MODEL=BAAI/bge-reranker-v2-m3
 ```
 
 ## 2. Ingest Documents
@@ -87,6 +88,7 @@ curl -X POST http://localhost:8080/search \
 | `/health/ready` | GET | Readiness check (Postgres, Redis, Neo4j) |
 | `/health/cache` | GET | Cache hit/miss statistics |
 | `/search` | POST | Query documents |
+| `/search/stream` | POST | Query with streaming response (SSE) |
 | `/ingest` | POST | Ingest a single document |
 | `/ingest/{job_id}` | GET | Check async ingestion status |
 
@@ -117,6 +119,23 @@ curl -X POST http://localhost:8080/search \
   "related_documents": [...]
 }
 ```
+
+### Streaming Response
+
+For real-time answer generation, use the streaming endpoint:
+
+```bash
+curl -N -X POST http://localhost:8080/search/stream \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Was sind die DSGVO Anforderungen?"}'
+```
+
+The response is Server-Sent Events (SSE) with these event types:
+- `meta`: Query complexity and timing info
+- `sources`: Retrieved source documents
+- `chunk`: Answer text chunks (streamed as generated)
+- `done`: Completion signal
+- `error`: Error information if something fails
 
 ## 6. Monitoring
 
@@ -185,6 +204,10 @@ Key settings in `.env`:
 | `DB_POOL_MAX` | 20 | Max database connections |
 | `CACHE_EMBED_TTL` | 86400 | Embedding cache TTL (seconds) |
 | `CACHE_QUERY_TTL` | 3600 | Query cache TTL (seconds) |
+| `MODEL_PROFILE` | (empty) | Model profile: small, medium, large |
+| `DYNAMIC_CONTEXT` | true | Enable dynamic context sizing |
+| `LLM_MAX_ANSWER_TOKENS` | 500 | Max tokens for answer generation |
+| `RERANK_CHARS_PER_DOC` | 1500 | Chars sent to reranker per doc |
 
 ## Troubleshooting
 

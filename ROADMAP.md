@@ -125,6 +125,12 @@ Why LangExtract over SpaCy:
 - [ ] Create monitoring dashboards (external - Grafana)
 - [ ] Alerting for quality degradation (external - Alertmanager)
 
+### 4.4 User Experience ✅
+- [x] Streaming responses via Server-Sent Events (`/search/stream`)
+- [x] Model profiles (small/medium/large) for different LLM capabilities
+- [x] Dynamic context sizing based on query complexity
+- [x] TEI cross-encoder reranking (bge-reranker-v2-m3) for fast, accurate reranking
+
 ---
 
 ## Phase 5: Scale Optimization (When Needed)
@@ -150,7 +156,7 @@ Why LangExtract over SpaCy:
 | Phase 1: Source Attribution | High | Low | ✅ Complete |
 | Phase 2: Entity Extraction | Unknown | Medium | Deferred (needs data analysis) |
 | Phase 3: Citation Chain Traversal | Medium | Medium | ✅ Complete |
-| Phase 4: Operational Improvements | Medium | Medium | As Needed |
+| Phase 4: Operational Improvements | Medium | Medium | ✅ Complete |
 | Phase 5: Scale Optimization | Low (until needed) | High | When Required |
 
 ---

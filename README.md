@@ -37,6 +37,7 @@ uv run uvicorn enterprise_rag.api:app --host 0.0.0.0 --port 8080
 | `/health` | GET | Liveness check |
 | `/health/ready` | GET | Readiness check (all services) |
 | `/search` | POST | Query documents |
+| `/search/stream` | POST | Query with streaming response (SSE) |
 | `/ingest` | POST | Ingest document |
 
 ```bash
@@ -79,13 +80,16 @@ enterprise_rag/
 ## Features
 
 **Completed:**
-- Hybrid search (BM25 + vector) with reranking
+- Hybrid search (BM25 + vector) with TEI reranking
 - Citation-aware answers with `[1]`, `[2]` references
 - Cross-document citation chain traversal
 - Connection pooling and Redis caching
 - Async ingestion with job queue
 - Structured logging and distributed tracing
 - Health endpoints for monitoring
+- Streaming responses (Server-Sent Events)
+- Model profiles (small/medium/large) for different LLM capabilities
+- Dynamic context sizing based on query complexity
 
 **Deferred:**
 - Entity extraction (pending corpus analysis)

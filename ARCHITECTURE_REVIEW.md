@@ -17,41 +17,52 @@ This document provides an assessment of the current architecture's strengths, li
 - Sliding windows with configurable overlap handle context well
 - Type-safe codebase (mypy strict) reduces runtime bugs
 
-## Concerns for Scale
+## Implemented Improvements
+
+### Performance ✅
+- **Connection pooling**: psycopg_pool in `enterprise_rag/db.py`
+- **Redis caching**: Query plans and embeddings cached in Redis
+- **Async job queue**: RQ-based ingestion and embedding workers
+- **TEI cross-encoder reranking**: Fast CPU-based reranking with bge-reranker-v2-m3
+- **Streaming responses**: Server-Sent Events for real-time answer delivery
+
+### Observability ✅
+- **Structured logging**: structlog with JSON output
+- **Distributed tracing**: OpenTelemetry with Jaeger
+- **Health endpoints**: `/health`, `/health/ready`, `/health/cache`
+
+### Flexibility ✅
+- **Model profiles**: small/medium/large presets for different LLM capabilities
+- **Dynamic context sizing**: Adjusts limits based on query complexity
+- **Deterministic query planning**: temperature=0.0 for reproducible results
+
+## Remaining Concerns for Scale
 
 ### Database Bottlenecks
 - Single PostgreSQL instance with no sharding strategy
 - Binary-quantized vectors trade recall for speed - may hurt quality at scale
-- No connection pooling mentioned (pgbouncer, etc.)
 - HNSW index rebuild on large updates can be slow
 
-### Latency Issues
-- Query planning requires an LLM call *before* retrieval starts
-- No query/embedding caching layer (Redis, etc.)
-- Synchronous embedding backfill won't scale for continuous ingestion
-
-### Missing for Production
-- No async job queue (Celery/RQ) for ingestion
+### Still Missing for Production
 - No authentication, rate limiting, or multi-tenancy
-- No observability (metrics, tracing, alerting)
-- No evaluation framework to measure retrieval/answer quality
-- Fixed blend ratio (55/45) - should be tunable per query type
+- External dashboards (Grafana) not yet configured
+- Alerting for quality degradation (Alertmanager) not yet configured
 
 ### Architectural Questions
 - Neo4j as "optional" is ambiguous - either it adds value (make it required) or it doesn't (remove it)
-- Custom reranker endpoint adds operational complexity vs. using the same LLM
 
 ## Recommendations
 
-| Priority | Change |
-|----------|--------|
-| High | Add Redis for query/embedding caching |
-| High | Implement async ingestion queue |
-| High | Add connection pooling (pgbouncer) |
-| Medium | Build evaluation harness (precision/recall metrics) |
-| Medium | Add observability (OpenTelemetry, structured logs) |
-| Medium | Make blend ratio configurable per query |
-| Low | Consider dedicated vector DB at 50M+ vectors if concurrent load is high |
+| Priority | Status | Change |
+|----------|--------|--------|
+| High | ✅ Done | Redis for query/embedding caching |
+| High | ✅ Done | Async ingestion queue (RQ) |
+| High | ✅ Done | Connection pooling (psycopg_pool) |
+| Medium | ✅ Done | Evaluation harness (precision/recall metrics) |
+| Medium | ✅ Done | Observability (OpenTelemetry, structured logs) |
+| Medium | Partial | Make blend ratio configurable per query |
+| Low | Pending | Consider dedicated vector DB at 50M+ vectors |
+| Medium | Pending | Authentication and rate limiting |
 
 ## Scalability Limits
 
@@ -126,10 +137,12 @@ Switch from pgvector when:
 
 ## Verdict
 
-**Will it work?** Yes, for moderate scale.
+**Will it work?** Yes, for moderate to medium scale.
 
-**Will it scale?** Not without changes. The synchronous architecture and single-instance database will become bottlenecks.
+**Will it scale?** Yes for 10K-100K documents. Beyond that, evaluate dedicated vector DB.
 
-**What's right:** The RAG fundamentals - hybrid search, reranking, evidence validation.
+**What's right:** The RAG fundamentals - hybrid search, TEI reranking, evidence validation, operational infrastructure.
 
-**What's missing:** Operational infrastructure - caching, queuing, pooling, observability.
+**What's been added:** Caching, queuing, pooling, observability, streaming, model profiles.
+
+**What's still needed for enterprise:** Authentication, rate limiting, monitoring dashboards, alerting.
