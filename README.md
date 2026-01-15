@@ -73,6 +73,7 @@ enterprise_rag/
 ## Documentation
 
 - **[USAGE.md](USAGE.md)** - Detailed usage guide
+- **[RETRIEVAL_CONCEPTS.md](RETRIEVAL_CONCEPTS.md)** - How retrieval works (BM25, embeddings, reranking)
 - **[ROADMAP.md](ROADMAP.md)** - Implementation phases
 - **[CLAUDE.md](CLAUDE.md)** - Developer guidance
 - **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** - System assessment

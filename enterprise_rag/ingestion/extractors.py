@@ -21,6 +21,134 @@ class ExtractedDoc:
     links: List[EmbeddedLink] = field(default_factory=list)
 
 
+def extract_xls(path: str) -> ExtractedDoc:
+    """
+    Enterprise-grade .xls extractor with the same logic as extract_xlsx():
+    - header detection (row 1)
+    - row formatting: "Header: Value | ..."
+    - skips empty rows
+    - row/col caps
+    - overlapping sliding-window chunks
+    - chunk header includes sheet + Zeilen range
+    """
+    import xlrd
+
+    p = Path(path)
+    book = xlrd.open_workbook(path, on_demand=True)
+    pages: List[str] = []
+
+    # Keep identical chunk settings to extract_xlsx
+    # Each row is an independent record with header context included
+    ROWS_PER_CHUNK = 1
+    OVERLAP_ROWS = 0
+
+    # Keep identical caps to extract_xlsx
+    MAX_ROWS = 5000
+    MAX_COLS = 50
+
+    def _cell_to_str(v) -> str:
+        # xlrd returns floats for numbers; we keep behavior close to openpyxl's str(v).strip()
+        # but avoid "1.0" when the cell is an integer.
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v.strip()
+        if isinstance(v, bool):
+            return "TRUE" if v else "FALSE"
+        if isinstance(v, (int,)):
+            return str(v)
+        if isinstance(v, float):
+            if v.is_integer():
+                return str(int(v))
+            return str(v)
+        return str(v).strip()
+
+    try:
+        for sheet in book.sheets():
+            max_rows = min(sheet.nrows or 0, MAX_ROWS)
+            max_cols = min(sheet.ncols or 0, MAX_COLS)
+
+            if max_rows == 0 or max_cols == 0:
+                continue
+
+            # Header row assumed to be first row (index 0 in xlrd)
+            headers: List[str] = []
+            for c in range(max_cols):
+                headers.append(_cell_to_str(sheet.cell_value(0, c)))
+            has_header = any(headers)
+            data_start = 1 if has_header else 0  # xlrd is 0-based
+
+            all_rows: list[tuple[int, str]] = []
+
+            # Iterate data rows, build row_text exactly like extract_xlsx (but with 1-based row numbers)
+            for r in range(data_start, max_rows):
+                vals: List[str] = []
+                empty = True
+
+                for c in range(max_cols):
+                    s = _cell_to_str(sheet.cell_value(r, c))
+                    if s:
+                        empty = False
+                    vals.append(s)
+
+                if empty:
+                    continue
+
+                if has_header:
+                    parts: List[str] = []
+                    for c, (h, val) in enumerate(zip(headers, vals), start=1):
+                        if not val:
+                            continue
+                        # Same fallback label semantics as your xlsx extractor
+                        label = h if h else f"Spalte{c}"
+                        parts.append(f"{label}: {val}")
+                    row_text = " | ".join(parts)
+                else:
+                    row_text = " | ".join(v for v in vals if v)
+
+                if row_text:
+                    # Store 1-based Excel row number to match extract_xlsx output
+                    all_rows.append((r + 1, row_text))
+
+            if not all_rows:
+                continue
+
+            # Sliding-window overlapping chunks
+            stride = ROWS_PER_CHUNK - OVERLAP_ROWS
+            i = 0
+            while i < len(all_rows):
+                chunk = all_rows[i : i + ROWS_PER_CHUNK]
+                if not chunk:
+                    break
+
+                first_row = chunk[0][0]
+                last_row = chunk[-1][0]
+                chunk_text = f"Sheet: {sheet.name} (Zeilen {first_row}-{last_row})\n"
+                chunk_text += "\n".join(row[1] for row in chunk)
+                pages.append(chunk_text.strip())
+
+                i += stride
+                # Avoid tiny final chunks (same rule as xlsx)
+                if i < len(all_rows) and len(all_rows) - i < OVERLAP_ROWS:
+                    break
+    finally:
+        # Ensure file handles are released
+        try:
+            book.release_resources()
+        except Exception:
+            pass
+
+    if not pages:
+        pages = [""]
+
+    return ExtractedDoc(
+        title=p.stem,
+        source_type="xls",
+        uri=str(p.resolve()),
+        pages=pages,
+    )
+
+
 def extract_pdf(path: str) -> ExtractedDoc:
     import fitz  # PyMuPDF
 
@@ -96,12 +224,29 @@ def extract_xlsx(path: str) -> ExtractedDoc:
     wb = load_workbook(path, data_only=True)
     pages: List[str] = []
 
-    for sheet in wb.worksheets:
-        rows_out = []
-        max_rows = min(sheet.max_row, 2000)
-        max_cols = min(sheet.max_column, 80)
+    # Each row is an independent record with header context included
+    # 1 row per chunk maximizes BM25 term density
+    ROWS_PER_CHUNK = 1
+    OVERLAP_ROWS = 0
 
-        for r in range(1, max_rows + 1):
+    for sheet in wb.worksheets:
+        max_rows = min(sheet.max_row or 0, 5000)
+        max_cols = min(sheet.max_column or 0, 50)
+
+        if max_rows == 0 or max_cols == 0:
+            continue
+
+        # Extract header row (assumed to be row 1)
+        headers = []
+        for c in range(1, max_cols + 1):
+            v = sheet.cell(1, c).value
+            headers.append("" if v is None else str(v).strip())
+        has_header = any(headers)
+        data_start = 2 if has_header else 1
+
+        # Extract all data rows with header context
+        all_rows = []
+        for r in range(data_start, max_rows + 1):
             vals = []
             empty = True
             for c in range(1, max_cols + 1):
@@ -112,12 +257,42 @@ def extract_xlsx(path: str) -> ExtractedDoc:
                 vals.append(s)
             if empty:
                 continue
-            rows_out.append("\t".join(vals))
-            if len(rows_out) >= 400:
+
+            # Format as "Header1: Value1 | Header2: Value2 | ..."
+            if has_header:
+                parts = []
+                for h, val in zip(headers, vals):
+                    if val:  # Only include non-empty values
+                        label = h if h else f"Spalte{headers.index(h)+1}"
+                        parts.append(f"{label}: {val}")
+                row_text = " | ".join(parts)
+            else:
+                row_text = " | ".join(v for v in vals if v)
+
+            if row_text:
+                all_rows.append((r, row_text))
+
+        # Create overlapping chunks
+        if not all_rows:
+            continue
+
+        stride = ROWS_PER_CHUNK - OVERLAP_ROWS
+        i = 0
+        while i < len(all_rows):
+            chunk = all_rows[i:i + ROWS_PER_CHUNK]
+            if not chunk:
                 break
 
-        text = f"Sheet: {sheet.title}\n" + ("\n".join(rows_out) if rows_out else "")
-        pages.append(text.strip())
+            first_row = chunk[0][0]
+            last_row = chunk[-1][0]
+            chunk_text = f"Sheet: {sheet.title} (Zeilen {first_row}-{last_row})\n"
+            chunk_text += "\n".join(row[1] for row in chunk)
+            pages.append(chunk_text.strip())
+
+            i += stride
+            # Avoid tiny final chunks
+            if i < len(all_rows) and len(all_rows) - i < OVERLAP_ROWS:
+                break
 
     if not pages:
         pages = [""]
@@ -162,8 +337,10 @@ def extract_any(path: str) -> ExtractedDoc:
         return extract_pdf(path)
     if ext == ".docx":
         return extract_docx(path)
+    if ext == ".xls":
+        return extract_xls(path)
     if ext in (".xlsx", ".xlsm"):
         return extract_xlsx(path)
-    if ext in (".html", ".htm", ".aspx"):
+    if ext in (".html", ".htm", ".asp", ".aspx"):
         return extract_html(path)
     raise ValueError(f"Unsupported file type: {ext}")

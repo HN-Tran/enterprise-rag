@@ -28,10 +28,23 @@ def main() -> None:
     print("PLAN:", plan)
     print("COMPLEXITY:", f"{complexity:.2f} ({complexity_label})")
     print("HITS:", len(hits))
-    print("ANSWER:", ans.get("answer"))
+    print()
+    print("=" * 60)
+    print("ANSWER:")
+    print(ans.get("answer"))
+    print()
+    print("-" * 60)
+    print("SOURCES:")
+    for s in ans.get("sources", []):
+        idx = s.get("index", "?")
+        title = s.get("title", "Unbekannt")
+        location = s.get("location", "")
+        snippet = s.get("snippet", "")[:100]
+        print(f"  [{idx}] {title} ({location})")
+        if snippet:
+            print(f"      \"{snippet}...\"")
+    print()
     print("CONFIDENCE:", ans.get("confidence"))
-    if ans.get("sources"):
-        print("SOURCES:", len(ans["sources"]))
 
 
 if __name__ == "__main__":

@@ -148,15 +148,14 @@ def ingest_path(path: str, force: bool = False) -> dict[str, Any]:
             # ---- windows ----
             # IMPORTANT: tsv is GENERATED ALWAYS STORED in schema -> DO NOT insert/update it.
             # embedding is populated later via embed_windows.py (keep it NULL or default until then).
+            # Delete old windows first (ensures clean re-ingestion when chunk sizes change)
+            cur.execute("DELETE FROM windows WHERE doc_id=%(doc)s", {"doc": doc_id})
             for w in windows:
                 win_sha = _sha256_text(w.text)
                 cur.execute(
                     """
                     INSERT INTO windows (doc_id, page_start, page_end, text, sha256)
                     VALUES (%(doc)s, %(ps)s, %(pe)s, %(txt)s, %(sha)s)
-                    ON CONFLICT (doc_id, page_start, page_end) DO UPDATE
-                    SET text = EXCLUDED.text,
-                        sha256 = EXCLUDED.sha256
                     """,
                     {"doc": doc_id, "ps": w.page_start, "pe": w.page_end, "txt": w.text, "sha": win_sha},
                 )

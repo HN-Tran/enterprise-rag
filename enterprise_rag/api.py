@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -29,14 +32,36 @@ app = FastAPI(
     version="0.2.0",
 )
 
+# CORS middleware for chatbot widget
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class IngestRequest(BaseModel):
     path: str
 
 
+class ChatMessage(BaseModel):
+    role: str  # 'user' or 'assistant'
+    content: str
+
+
 class SearchRequest(BaseModel):
     query: str
     k: int = Field(default=8, description="Number of sources to retrieve")
+    history: list[ChatMessage] | None = Field(default=None, description="Previous chat messages for context")
+
+
+class FeedbackRequest(BaseModel):
+    query: str
+    answer: str
+    feedback: str = Field(description="'up' or 'down'")
+    history: list[dict] | None = Field(default=None, description="Full chat history if available")
 
 
 # Response models for structured output
@@ -320,7 +345,12 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
             ctx = pack_context(req.query, hits, anchors)
 
             # Stream the answer
-            for event in stream_answer(req.query, ctx, complexity=complexity):
+            # Convert history to list of dicts if provided
+            history_dicts = None
+            if req.history:
+                history_dicts = [{"role": h.role, "content": h.content} for h in req.history]
+
+            for event in stream_answer(req.query, ctx, complexity=complexity, history=history_dicts):
                 event_type = event.get("type", "chunk")
                 if event_type == "sources":
                     yield f"event: sources\ndata: {json.dumps(event['sources'])}\n\n"
@@ -341,3 +371,27 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
             "X-Accel-Buffering": "no",  # Disable nginx buffering
         },
     )
+
+
+# Feedback file path - configure via environment or change here
+FEEDBACK_FILE = Path(settings.DATA_DIR if hasattr(settings, 'DATA_DIR') else ".") / "feedback.jsonl"
+
+
+@app.post("/feedback")
+def submit_feedback(req: FeedbackRequest):
+    """Save user feedback (thumbs up/down) to a file."""
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "query": req.query,
+        "answer": req.answer,
+        "feedback": req.feedback,
+    }
+
+    # Include chat history if provided
+    if req.history:
+        entry["history"] = req.history
+
+    with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    return {"status": "ok"}

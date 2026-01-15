@@ -108,8 +108,12 @@ def chat_stream(
         stream=True,
     ) as r:
         r.raise_for_status()
-        for line in r.iter_lines(decode_unicode=True):
-            if not line or not line.startswith("data: "):
+        for line_bytes in r.iter_lines():
+            if not line_bytes:
+                continue
+            # Force UTF-8 decoding
+            line = line_bytes.decode("utf-8")
+            if not line.startswith("data: "):
                 continue
             data = line[6:]  # Remove "data: " prefix
             if data == "[DONE]":

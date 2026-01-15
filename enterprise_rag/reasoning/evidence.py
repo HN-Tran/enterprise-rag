@@ -291,13 +291,22 @@ _STREAM_SYSTEM = """\
 Du bist ein präziser Frage-Antwort-Assistent für Unternehmensdokumente.
 
 REGELN:
-1. Beantworte die Frage DIREKT in 1-3 Sätzen
+1. Beantworte die Frage DIREKT in 1-3 Sätzen im Fließtext
 2. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
 3. Verwende Quellenverweise [1], [2] im Text, um auf die Quellen zu verweisen
 4. Sei präzise und faktisch - keine Spekulationen
+5. Jede Aussage MUSS mit einer Quellenangabe versehen sein
+6. Fasse Informationen aus mehreren Quellen zusammen, wenn relevant
+
+Konfidenz-Bewertung am Ende (in Klammern):
+- (Hohe Konfidenz): 3+ starke Belege, klare Übereinstimmung
+- (Mittlere Konfidenz): 2 Belege oder teilweise Übereinstimmung
+- (Niedrige Konfidenz): Schwache Belege oder Unsicherheit
 
 Wenn KEINE belastbaren Belege vorhanden sind, antworte:
 "Nicht genügend belastbare Belege im Korpus gefunden."
+
+Bei nur einem Beleg: Antworte trotzdem, aber erwähne "(Niedrige Konfidenz - nur eine Quelle)".
 """
 
 
@@ -305,6 +314,7 @@ def stream_answer(
     query: str,
     context: dict[str, Any],
     complexity: float = 1.0,
+    history: list[dict] | None = None,
 ):
     """Stream the answer generation, yielding text chunks.
 
@@ -335,6 +345,15 @@ def stream_answer(
 
     # Format context as plain text
     user = _format_context_as_text(query, context, limits)
+
+    # Prepend chat history if provided
+    if history:
+        history_text = "\n\n--- Bisheriger Gesprächsverlauf ---\n"
+        for msg in history:
+            role_label = "Nutzer" if msg.get("role") == "user" else "Assistent"
+            history_text += f"{role_label}: {msg.get('content', '')}\n"
+        history_text += "--- Ende des Gesprächsverlaufs ---\n\n"
+        user = history_text + user
 
     # Stream the answer
     max_tokens = limits.get("max_answer_tokens", settings.LLM_MAX_ANSWER_TOKENS)
