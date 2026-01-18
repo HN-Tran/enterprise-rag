@@ -12,11 +12,13 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--q", required=True)
     ap.add_argument("--k", type=int, default=8)
+    ap.add_argument("--timing", action="store_true", help="Show timing breakdown")
     args = ap.parse_args()
 
-    result = retrieve(args.q)
+    result = retrieve(args.q, debug_timing=args.timing)
     hits = result["hits"][: args.k]
     plan = result.get("plan")
+    timings = result.get("timings", {})
 
     # Analyze query complexity for dynamic context sizing
     complexity = analyze_complexity(args.q, plan)
@@ -45,6 +47,14 @@ def main() -> None:
             print(f"      \"{snippet}...\"")
     print()
     print("CONFIDENCE:", ans.get("confidence"))
+
+    if args.timing and timings:
+        print()
+        print("-" * 60)
+        print("RETRIEVAL TIMING:")
+        for step, duration in timings.items():
+            print(f"  {step}: {duration:.2f}s")
+        print(f"  TOTAL retrieval: {sum(timings.values()):.2f}s")
 
 
 if __name__ == "__main__":

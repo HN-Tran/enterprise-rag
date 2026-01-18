@@ -43,8 +43,15 @@ def bm25_candidates(query: str, categories: list[str] | None, k: int) -> list[di
             return cur.fetchall()
 
 
-def vector_candidates(query: str, k: int) -> list[dict[str, Any]]:
-    qvec = embed_texts([query])[0]
+def vector_candidates(query: str, k: int, embedding: list[float] | None = None) -> list[dict[str, Any]]:
+    """Retrieve candidates by vector similarity.
+
+    Args:
+        query: The query text (used for embedding if embedding not provided)
+        k: Number of candidates to return
+        embedding: Pre-computed embedding vector. If None, will compute it.
+    """
+    qvec = embedding if embedding is not None else embed_texts([query])[0]
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(

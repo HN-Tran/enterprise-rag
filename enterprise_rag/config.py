@@ -110,7 +110,8 @@ class Settings(BaseSettings):
     CANDIDATES_VEC: int = 120
     RERANK_KEEP: int = 18
     MAX_PER_DOC: int = 2
-    MAX_QUERY_REWRITES: int = 6  # Max query variations for BM25
+    MAX_QUERY_REWRITES: int = 3  # Max query variations for BM25 (reduced from 6)
+    SKIP_QUERY_PLANNING: bool = False  # Skip LLM query planning for faster retrieval
 
     # Category boosting
     CATEGORY_BOOST: float = 1.20
