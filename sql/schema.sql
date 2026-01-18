@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS windows (
   tsv         tsvector GENERATED ALWAYS AS (to_tsvector('simple', coalesce(text, ''))) STORED,
 
   -- Embeddings are backfilled later (nullable)
+  -- Qwen3 embedding (4096 dims) - high quality, slower
   embedding   vector(4096),
 
   -- Binary quantization for ANN (nullable until embedding is present)
@@ -75,6 +76,17 @@ CREATE TABLE IF NOT EXISTS windows (
       CASE
         WHEN embedding IS NULL THEN NULL
         ELSE binary_quantize(embedding)::bit(4096)
+      END
+    ) STORED,
+
+  -- Nomic embedding (768 dims) - faster, smaller
+  embedding_nomic vector(768),
+
+  embedding_nomic_bq bit(768)
+    GENERATED ALWAYS AS (
+      CASE
+        WHEN embedding_nomic IS NULL THEN NULL
+        ELSE binary_quantize(embedding_nomic)::bit(768)
       END
     ) STORED,
 
@@ -93,6 +105,12 @@ CREATE INDEX IF NOT EXISTS idx_windows_emb_bq_hnsw
 ON windows
 USING hnsw (embedding_bq bit_hamming_ops)
 WHERE embedding_bq IS NOT NULL;
+
+-- HNSW ANN index for nomic embeddings
+CREATE INDEX IF NOT EXISTS idx_windows_emb_nomic_hnsw
+ON windows
+USING hnsw (embedding_nomic_bq bit_hamming_ops)
+WHERE embedding_nomic_bq IS NOT NULL;
 
 
 -- ---------- anchors ----------

@@ -77,6 +77,8 @@ def retrieve(query: str, expand_citations: bool = True, debug_timing: bool = Fal
     # Query planning (can be skipped for faster retrieval)
     t0 = time.perf_counter()
     skip_planning = settings.SKIP_QUERY_PLANNING
+    if debug_timing:
+        print(f"[DEBUG] skip_planning={skip_planning}")
     if skip_planning:
         plan = {"rewrites": [query], "bm25_query": query, "categories": [], "acronyms": {}}
     else:
@@ -89,6 +91,8 @@ def retrieve(query: str, expand_citations: bool = True, debug_timing: bool = Fal
 
     # Limit rewrites
     rewrites = rewrites[:settings.MAX_QUERY_REWRITES]
+    if debug_timing:
+        print(f"[DEBUG] rewrites={len(rewrites)}, plan had {len(plan.get('rewrites', []))}")
 
     # Batch embed all rewrites at once (single API call instead of N calls)
     t0 = time.perf_counter()

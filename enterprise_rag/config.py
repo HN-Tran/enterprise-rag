@@ -25,6 +25,17 @@ class ModelProfile:
     pack_chars_per_source: int
 
 
+@dataclass
+class EmbeddingProfile:
+    """Configuration for an embedding model."""
+
+    name: str  # Profile name (e.g., "qwen", "nomic")
+    model: str  # Model name for API
+    dim: int  # Embedding dimensions
+    db_column: str  # PostgreSQL column name
+    base_url: str | None = None  # Override base URL (None = use default)
+
+
 # Predefined model profiles for common configurations
 MODEL_PROFILES: dict[str, ModelProfile] = {
     # Large models with big context windows
@@ -66,6 +77,27 @@ MODEL_PROFILES: dict[str, ModelProfile] = {
 }
 
 
+# Embedding model profiles - allows switching between models
+EMBEDDING_PROFILES: dict[str, EmbeddingProfile] = {
+    # Default: Qwen3 embedding (high quality, slower)
+    "qwen": EmbeddingProfile(
+        name="qwen",
+        model="qwen3-embedding-8b",
+        dim=4096,
+        db_column="embedding",
+    ),
+    # Fast: nomic-embed-text via TEI (much faster than Ollama)
+    # base_url is set from NOMIC_BASE_URL setting in get_embedding_profile()
+    "nomic": EmbeddingProfile(
+        name="nomic",
+        model="nomic-ai/nomic-embed-text-v1.5",
+        dim=768,
+        db_column="embedding_nomic",
+        base_url=None,  # Populated from settings.NOMIC_BASE_URL
+    ),
+}
+
+
 class Settings(BaseSettings):
     """Strongly typed settings loaded from environment."""
 
@@ -85,6 +117,13 @@ class Settings(BaseSettings):
     EMBED_MODEL: str = "qwen3-embedding-8b"
     EMBED_API_KEY: str = ""
     EMBED_DIM: int = 4096
+
+    # Embedding profile - switch between models (qwen, nomic)
+    # When set, overrides EMBED_MODEL and EMBED_DIM
+    EMBEDDING_PROFILE: str = ""  # Empty = use EMBED_MODEL/EMBED_DIM directly
+
+    # Nomic embedder URL (TEI endpoint)
+    NOMIC_BASE_URL: str = "http://localhost:9002/v1"
 
     # Reranker - TEI (Text Embeddings Inference) with cross-encoder model
     # Much faster and more accurate than LLM-based reranking
@@ -173,6 +212,34 @@ def get_model_profile() -> ModelProfile | None:
     if settings.MODEL_PROFILE and settings.MODEL_PROFILE in MODEL_PROFILES:
         return MODEL_PROFILES[settings.MODEL_PROFILE]
     return None
+
+
+def get_embedding_profile() -> EmbeddingProfile:
+    """Get the active embedding profile.
+
+    Returns profile from EMBEDDING_PROFILE setting, or constructs one from
+    individual EMBED_* settings if no profile is set.
+    """
+    if settings.EMBEDDING_PROFILE and settings.EMBEDDING_PROFILE in EMBEDDING_PROFILES:
+        profile = EMBEDDING_PROFILES[settings.EMBEDDING_PROFILE]
+        # For nomic, populate base_url from settings
+        if profile.name == "nomic" and profile.base_url is None:
+            return EmbeddingProfile(
+                name=profile.name,
+                model=profile.model,
+                dim=profile.dim,
+                db_column=profile.db_column,
+                base_url=settings.NOMIC_BASE_URL,
+            )
+        return profile
+
+    # Fallback: construct profile from individual settings
+    return EmbeddingProfile(
+        name="custom",
+        model=settings.EMBED_MODEL,
+        dim=settings.EMBED_DIM,
+        db_column="embedding",  # Default column for custom models
+    )
 
 
 def get_effective_limits(complexity: float = 1.0) -> dict[str, Any]:

@@ -13,7 +13,7 @@ from typing import Any, Generator, Iterable, List
 import requests
 
 from enterprise_rag.cache import cached_embeddings
-from enterprise_rag.config import settings
+from enterprise_rag.config import get_embedding_profile, settings
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +25,42 @@ def _auth_headers(api_key: str) -> dict[str, str]:
 
 
 def _embed_texts_impl(texts: list[str]) -> list[list[float]]:
-    """Compute embeddings via OpenAI-compatible /embeddings endpoint (uncached)."""
-    url = settings.EMBED_BASE_URL.rstrip("/") + "/embeddings"
-    payload = {"model": settings.EMBED_MODEL, "input": texts}
+    """Compute embeddings via embedding endpoint (uncached).
+
+    Uses the active embedding profile (EMBEDDING_PROFILE) to determine model and dimensions.
+    Supports both OpenAI-compatible (Ollama) and TEI formats.
+    """
+    profile = get_embedding_profile()
+    base_url = profile.base_url or settings.EMBED_BASE_URL
+
+    # TEI uses different format than OpenAI
+    if profile.base_url:
+        # TEI format: /embed endpoint with "inputs" field
+        # Truncate texts to avoid exceeding TEI token limits (~4 chars per token, 8192 max)
+        max_chars = 6000  # Conservative limit per text
+        truncated = [t[:max_chars] if len(t) > max_chars else t for t in texts]
+        url = base_url.rstrip("/").removesuffix("/v1") + "/embed"
+        payload = {"inputs": truncated}
+    else:
+        # OpenAI format: /embeddings endpoint with "input" field
+        url = base_url.rstrip("/") + "/embeddings"
+        payload = {"model": profile.model, "input": texts}
+
+    logger.debug(f"Embedding request: URL={url}, model={profile.model}, texts={len(texts)}")
     r = requests.post(url, json=payload, headers=_auth_headers(settings.EMBED_API_KEY), timeout=180)
+    if not r.ok:
+        logger.error(f"Embedding failed: {r.status_code} - {r.text[:500]}")
     r.raise_for_status()
+
+    # TEI returns list directly, OpenAI returns {"data": [{"embedding": ...}]}
     data = r.json()
-    vecs = [item["embedding"] for item in data["data"]]
-    if vecs and len(vecs[0]) != settings.EMBED_DIM:
-        raise ValueError(f"Embedding dim {len(vecs[0])} != EMBED_DIM {settings.EMBED_DIM}")
+    if isinstance(data, list):
+        vecs = data  # TEI format
+    else:
+        vecs = [item["embedding"] for item in data["data"]]  # OpenAI format
+
+    if vecs and len(vecs[0]) != profile.dim:
+        raise ValueError(f"Embedding dim {len(vecs[0])} != expected {profile.dim} for {profile.model}")
     return vecs
 
 

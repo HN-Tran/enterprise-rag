@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from enterprise_rag.config import settings
+from enterprise_rag.config import get_embedding_profile, settings
 from enterprise_rag.db import get_conn
 from enterprise_rag.llm import embed_texts
 
@@ -50,17 +50,23 @@ def vector_candidates(query: str, k: int, embedding: list[float] | None = None) 
         query: The query text (used for embedding if embedding not provided)
         k: Number of candidates to return
         embedding: Pre-computed embedding vector. If None, will compute it.
+
+    Uses the active embedding profile to determine which column to query.
     """
+    profile = get_embedding_profile()
+    col = profile.db_column  # e.g., "embedding" or "embedding_nomic"
+
     qvec = embedding if embedding is not None else embed_texts([query])[0]
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # Dynamic column name - safe because it comes from config, not user input
             cur.execute(
-                """
+                f"""
                 SELECT window_id, doc_id, page_start, page_end, text,
-                       1 - (embedding <=> %(vec)s::vector) AS score
+                       1 - ({col} <=> %(vec)s::vector) AS score
                 FROM windows
-                WHERE embedding IS NOT NULL
-                ORDER BY embedding <=> %(vec)s::vector
+                WHERE {col} IS NOT NULL
+                ORDER BY {col} <=> %(vec)s::vector
                 LIMIT %(k)s
                 """,
                 {"vec": qvec, "k": k},
