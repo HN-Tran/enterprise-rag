@@ -14,11 +14,11 @@ from enterprise_rag.db import get_conn
 
 # Patterns indicating old/archived document versions
 OLD_FILENAME_PATTERNS = [
-    r"_alt\.[^.]+$",  # *_alt.pdf
+    r"_alt\d*\.[^.]+$",  # *_alt.pdf, *_alt1.pdf, *_alt2.pdf
     r"^alt_",  # alt_*.pdf
-    r"_old\.[^.]+$",  # *_old.pdf
+    r"_old\d*\.[^.]+$",  # *_old.pdf, *_old1.pdf
     r"^old_",  # old_*.pdf
-    r"_archiv\.[^.]+$",  # *_archiv.pdf (German)
+    r"_archiv\d*\.[^.]+$",  # *_archiv.pdf, *_archiv1.pdf (German)
     r"^archiv_",  # archiv_*.pdf
     r"_v\d+\.[^.]+$",  # *_v1.pdf, *_v2.pdf (older versions)
 ]
