@@ -338,6 +338,7 @@ def stream_answer(
             "title": w.get("title", "Unbekannt"),
             "location": w.get("location", ""),
             "snippet": w.get("text", "")[:200],
+            "uri": w.get("download_url"),
         }
         for i, w in enumerate(windows)
     ]

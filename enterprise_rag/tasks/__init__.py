@@ -32,6 +32,7 @@ def init_queues() -> None:
         from rq import Queue
 
         _redis_conn = Redis.from_url(settings.REDIS_URL)
+        _redis_conn.ping()  # Test connection
         _default_queue = Queue("default", connection=_redis_conn)
         _embedding_queue = Queue("embeddings", connection=_redis_conn)
 
@@ -42,7 +43,7 @@ def init_queues() -> None:
     except ImportError as e:
         logger.warning("rq_import_error", error=str(e))
     except Exception as e:
-        logger.error("queue_init_error", error=str(e))
+        logger.info("task_queues_disabled", reason=str(e))
 
 
 def get_default_queue() -> "Queue | None":

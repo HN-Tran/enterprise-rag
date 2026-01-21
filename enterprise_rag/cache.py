@@ -29,7 +29,11 @@ def init_cache() -> None:
     global _redis
     if not _HAS_REDIS or not settings.REDIS_URL:
         return
-    _redis = redis.from_url(settings.REDIS_URL, decode_responses=False)
+    try:
+        _redis = redis.from_url(settings.REDIS_URL, decode_responses=False)
+        _redis.ping()  # Test connection
+    except Exception:
+        _redis = None  # Gracefully disable caching
 
 
 def close_cache() -> None:
