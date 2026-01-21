@@ -22,7 +22,7 @@ def _hydrate_docs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT doc_id, title, uri, category, categories FROM documents WHERE doc_id = ANY(%s)",
+                "SELECT doc_id, title, download_url, category, categories FROM documents WHERE doc_id = ANY(%s)",
                 (doc_ids,),
             )
             dmap = {r["doc_id"]: r for r in cur.fetchall()}
@@ -32,7 +32,7 @@ def _hydrate_docs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         d = dmap.get(r["doc_id"], {})
         r2 = dict(r)
         r2["title"] = d.get("title")
-        r2["uri"] = d.get("uri")
+        r2["download_url"] = d.get("download_url")
         r2["category"] = d.get("category")
         r2["categories"] = d.get("categories") or []
         out.append(r2)

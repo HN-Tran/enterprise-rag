@@ -127,7 +127,7 @@ def _build_fallback_response(query: str, content: str, context: dict[str, Any]) 
             location=w.get("location", ""),
             snippet=w.get("text", "")[:settings.EVIDENCE_FALLBACK_SNIPPET_CHARS],
             confidence=0.7,
-            uri=w.get("uri"),
+            uri=w.get("download_url"),
         ))
 
     return asdict(CitedAnswer(
@@ -232,7 +232,7 @@ def extract_and_answer(
                 location=s.get("location", ""),
                 snippet=s.get("snippet", ""),
                 confidence=s.get("confidence", 0.0),
-                uri=s.get("uri"),
+                uri=s.get("download_url"),
             )
             for i, s in enumerate(sources)
         ],
@@ -269,7 +269,7 @@ def _build_insufficient_response(
                 location=s.get("location", ""),
                 snippet=s.get("snippet", ""),
                 confidence=s.get("confidence", 0.0),
-                uri=s.get("uri"),
+                uri=s.get("download_url"),
             )
             for i, s in enumerate(partial_sources)
         ]
