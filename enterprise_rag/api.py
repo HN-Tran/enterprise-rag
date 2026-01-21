@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from enterprise_rag.log import setup_logging
 from enterprise_rag.ingestion.ingest import ingest_path
+from enterprise_rag.ingestion.crawler import crawl_and_ingest, preview_links
 from enterprise_rag.retrieval.hybrid import retrieve
 from enterprise_rag.db import get_conn, init_pool, close_pool
 from enterprise_rag.cache import init_cache, close_cache, is_cache_available, get_cache_stats
@@ -44,6 +45,10 @@ app.add_middleware(
 
 class IngestRequest(BaseModel):
     path: str
+    title_override: str | None = Field(default=None, description="Override document title")
+    source_url: str | None = Field(default=None, description="Page URL where document was found")
+    download_url: str | None = Field(default=None, description="Direct download URL")
+    supersedes_doc_id: str | None = Field(default=None, description="Doc ID this replaces (marks old as archived)")
 
 
 class ChatMessage(BaseModel):
@@ -55,6 +60,7 @@ class SearchRequest(BaseModel):
     query: str
     k: int = Field(default=8, description="Number of sources to retrieve")
     history: list[ChatMessage] | None = Field(default=None, description="Previous chat messages for context")
+    include_archived: bool = Field(default=False, description="Include archived document versions in search")
 
 
 class FeedbackRequest(BaseModel):
@@ -62,6 +68,11 @@ class FeedbackRequest(BaseModel):
     answer: str
     feedback: str = Field(description="'up' or 'down'")
     history: list[dict] | None = Field(default=None, description="Full chat history if available")
+
+
+class CrawlRequest(BaseModel):
+    url: str = Field(description="URL to crawl for document links")
+    dry_run: bool = Field(default=False, description="Preview links without downloading/ingesting")
 
 
 # Response models for structured output
@@ -193,7 +204,13 @@ def ingest(req: IngestRequest) -> dict:
     """
     if settings.ASYNC_INGEST:
         return enqueue_ingest(req.path)
-    return ingest_path(req.path)
+    return ingest_path(
+        req.path,
+        title_override=req.title_override,
+        source_url=req.source_url,
+        download_url=req.download_url,
+        supersedes_doc_id=req.supersedes_doc_id,
+    )
 
 
 @app.get("/ingest/{job_id}")
@@ -204,7 +221,7 @@ def ingest_status(job_id: str) -> dict:
 
 @app.post("/search", response_model=SearchResponse)
 def search(req: SearchRequest) -> SearchResponse:
-    result = retrieve(req.query)
+    result = retrieve(req.query, include_archived=req.include_archived)
     hits = result["hits"][: req.k]
     plan = result.get("plan")
 
@@ -309,7 +326,7 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
     def generate():
         try:
             # Retrieval phase
-            result = retrieve(req.query)
+            result = retrieve(req.query, include_archived=req.include_archived)
             hits = result["hits"][: req.k]
             plan = result.get("plan")
 
@@ -395,3 +412,70 @@ def submit_feedback(req: FeedbackRequest):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     return {"status": "ok"}
+
+
+@app.post("/crawl")
+def crawl(req: CrawlRequest) -> dict:
+    """Crawl a web page for document links and ingest them.
+
+    In dry_run mode, returns discovered links without downloading.
+    Otherwise, downloads and ingests all discovered documents.
+    """
+    if req.dry_run:
+        return preview_links(req.url)
+
+    # Full crawl - collect all events and return summary
+    ingested: list[dict] = []
+    failed: list[dict] = []
+    orphaned_count = 0
+
+    for event in crawl_and_ingest(req.url):
+        event_type = event.get("type")
+
+        if event_type == "crawl_error":
+            return {"error": event["error"], "url": req.url}
+
+        elif event_type == "ingest_done":
+            ingested.append({
+                "url": event.get("url"),
+                "doc_id": event.get("doc_id"),
+                "title": event.get("title"),
+                "is_current": event.get("is_current", True),
+            })
+
+        elif event_type == "download_error" or event_type == "ingest_error":
+            failed.append({
+                "url": event.get("url"),
+                "error": event.get("error"),
+            })
+
+        elif event_type == "done":
+            orphaned_count = event.get("orphaned_count", 0)
+
+    return {
+        "url": req.url,
+        "ingested": ingested,
+        "failed": failed,
+        "orphaned_count": orphaned_count,
+    }
+
+
+@app.post("/crawl/stream")
+def crawl_stream(req: CrawlRequest) -> StreamingResponse:
+    """Stream crawl progress using Server-Sent Events.
+
+    Returns SSE events for each crawl/download/ingest step.
+    """
+    def generate():
+        for event in crawl_and_ingest(req.url):
+            yield f"event: {event.get('type', 'progress')}\ndata: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

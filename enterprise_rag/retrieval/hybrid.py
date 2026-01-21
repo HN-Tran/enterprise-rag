@@ -71,7 +71,12 @@ def _diversify(rows: list[dict[str, Any]], max_per_doc: int) -> list[dict[str, A
     return out
 
 
-def retrieve(query: str, expand_citations: bool = True, debug_timing: bool = False) -> dict[str, Any]:
+def retrieve(
+    query: str,
+    expand_citations: bool = True,
+    debug_timing: bool = False,
+    include_archived: bool = False,
+) -> dict[str, Any]:
     timings: dict[str, float] = {}
 
     # Query planning (can be skipped for faster retrieval)
@@ -103,15 +108,23 @@ def retrieve(query: str, expand_citations: bool = True, debug_timing: bool = Fal
     bm_all: list[dict[str, Any]] = []
     vc_all: list[dict[str, Any]] = []
 
+    # Use setting default for include_archived if not explicitly passed
+    if not include_archived:
+        include_archived = settings.INCLUDE_ARCHIVED_BY_DEFAULT
+
     t0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=len(rewrites) * 2) as executor:
         # Submit all BM25 and vector searches in parallel
         bm25_futures = {
-            executor.submit(bm25_candidates, rq, cats, settings.CANDIDATES_BM25): ("bm25", rq)
+            executor.submit(
+                bm25_candidates, rq, cats, settings.CANDIDATES_BM25, include_archived
+            ): ("bm25", rq)
             for rq in rewrites
         }
         vec_futures = {
-            executor.submit(vector_candidates, rq, settings.CANDIDATES_VEC, emb): ("vec", rq)
+            executor.submit(
+                vector_candidates, rq, settings.CANDIDATES_VEC, emb, include_archived
+            ): ("vec", rq)
             for rq, emb in zip(rewrites, embeddings)
         }
 

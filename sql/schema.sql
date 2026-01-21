@@ -22,6 +22,14 @@ CREATE TABLE IF NOT EXISTS documents (
   sha256      TEXT NOT NULL,
   category    TEXT,
   categories  TEXT[],
+  -- Versioning fields
+  is_current    BOOLEAN NOT NULL DEFAULT TRUE,
+  archived_at   TIMESTAMPTZ,
+  archive_reason TEXT,  -- 'filename_pattern', 'folder_pattern', 'orphaned', 'replaced', 'manual'
+  -- Crawler metadata
+  source_url    TEXT,      -- Page where link was found
+  download_url  TEXT,      -- Direct file URL
+  last_seen_at  TIMESTAMPTZ,  -- Last time found in crawl
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -34,6 +42,11 @@ EXECUTE FUNCTION set_updated_at();
 
 -- Helpful for dedupe/lookups by hash
 CREATE INDEX IF NOT EXISTS idx_documents_sha256 ON documents(sha256);
+
+-- Version filtering indexes
+CREATE INDEX IF NOT EXISTS idx_documents_is_current ON documents(is_current) WHERE is_current = TRUE;
+CREATE INDEX IF NOT EXISTS idx_documents_source_url ON documents(source_url) WHERE source_url IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_documents_download_url ON documents(download_url) WHERE download_url IS NOT NULL;
 
 
 -- ---------- pages ----------
@@ -161,3 +174,19 @@ CREATE TABLE IF NOT EXISTS citations (
 CREATE INDEX IF NOT EXISTS idx_citations_source ON citations(source_doc_id);
 CREATE INDEX IF NOT EXISTS idx_citations_target ON citations(target_doc_id);
 CREATE INDEX IF NOT EXISTS idx_citations_unresolved ON citations(resolved) WHERE resolved = FALSE;
+
+
+-- ---------- version_overlap_log ----------
+-- Tracks when documents were marked as non-current due to content overlap
+CREATE TABLE IF NOT EXISTS version_overlap_log (
+    id SERIAL PRIMARY KEY,
+    new_doc_id TEXT NOT NULL,
+    old_doc_id TEXT NOT NULL,
+    embedding_similarity FLOAT NOT NULL,
+    text_overlap FLOAT NOT NULL,
+    action TEXT NOT NULL,  -- 'auto_archived', 'user_archived', 'ignored'
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_version_overlap_new_doc ON version_overlap_log(new_doc_id);
+CREATE INDEX IF NOT EXISTS idx_version_overlap_old_doc ON version_overlap_log(old_doc_id);

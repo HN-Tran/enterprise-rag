@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 import hashlib
+from datetime import datetime
+from typing import Any
 
 from enterprise_rag.config import settings
 from enterprise_rag.db import get_conn, make_doc_id, sha256_file
@@ -11,6 +12,12 @@ from enterprise_rag.ingestion.extractors import extract_any
 from enterprise_rag.ingestion.normalize import norm_text
 from enterprise_rag.ingestion.segment import build_anchors, build_windows
 from enterprise_rag.ingestion.citations import extract_citations, ExtractedCitation
+from enterprise_rag.ingestion.versioning import (
+    is_old_by_pattern,
+    mark_document_archived,
+    check_url_replacement,
+    check_and_handle_overlap,
+)
 from enterprise_rag.neo4j_amp import Neo4jAmp
 
 
@@ -52,12 +59,23 @@ def _resolve_citation(cur: Any, cit: ExtractedCitation) -> str | None:
     return None
 
 
-def ingest_path(path: str, force: bool = False) -> dict[str, Any]:
+def ingest_path(
+    path: str,
+    force: bool = False,
+    title_override: str | None = None,
+    source_url: str | None = None,
+    download_url: str | None = None,
+    supersedes_doc_id: str | None = None,
+) -> dict[str, Any]:
     """Ingest a document into the RAG system.
 
     Args:
         path: Path to the file to ingest
         force: If True, re-ingest even if file hasn't changed
+        title_override: Use this title instead of extracted title (from crawler anchor text)
+        source_url: Page URL where document link was found (crawler metadata)
+        download_url: Direct download URL (crawler metadata)
+        supersedes_doc_id: If set, mark this doc_id as archived (manual version replacement)
 
     Returns:
         Dict with ingestion results or duplicate status
@@ -65,6 +83,17 @@ def ingest_path(path: str, force: bool = False) -> dict[str, Any]:
     ex = extract_any(path)
     doc_id = make_doc_id(ex.uri)
     file_hash = sha256_file(path)
+
+    # Use title override if provided (e.g., from crawler anchor text)
+    doc_title = title_override or ex.title
+
+    # Check if this file pattern indicates an old version
+    is_old, old_reason = is_old_by_pattern(ex.uri)
+
+    # Check if this URL was previously ingested with different content
+    replaced_doc_id: str | None = None
+    if download_url:
+        replaced_doc_id = check_url_replacement(download_url, file_hash)
 
     # Check for existing document with same hash (skip if unchanged)
     if not force:
@@ -98,16 +127,40 @@ def ingest_path(path: str, force: bool = False) -> dict[str, Any]:
             # ---- documents ----
             cur.execute(
                 """
-                INSERT INTO documents (doc_id, title, source_type, uri, sha256, updated_at)
-                VALUES (%(doc)s, %(title)s, %(typ)s, %(uri)s, %(sha)s, now())
+                INSERT INTO documents (
+                    doc_id, title, source_type, uri, sha256,
+                    is_current, archive_reason,
+                    source_url, download_url, last_seen_at,
+                    updated_at
+                )
+                VALUES (
+                    %(doc)s, %(title)s, %(typ)s, %(uri)s, %(sha)s,
+                    %(is_current)s, %(archive_reason)s,
+                    %(source_url)s, %(download_url)s, %(last_seen_at)s,
+                    now()
+                )
                 ON CONFLICT (doc_id) DO UPDATE
                 SET title=EXCLUDED.title,
                     source_type=EXCLUDED.source_type,
                     uri=EXCLUDED.uri,
                     sha256=EXCLUDED.sha256,
+                    source_url=COALESCE(EXCLUDED.source_url, documents.source_url),
+                    download_url=COALESCE(EXCLUDED.download_url, documents.download_url),
+                    last_seen_at=COALESCE(EXCLUDED.last_seen_at, documents.last_seen_at),
                     updated_at=now()
                 """,
-                {"doc": doc_id, "title": ex.title, "typ": ex.source_type, "uri": ex.uri, "sha": file_hash},
+                {
+                    "doc": doc_id,
+                    "title": doc_title,
+                    "typ": ex.source_type,
+                    "uri": ex.uri,
+                    "sha": file_hash,
+                    "is_current": not is_old,  # Mark as non-current if old pattern detected
+                    "archive_reason": old_reason,
+                    "source_url": source_url,
+                    "download_url": download_url,
+                    "last_seen_at": datetime.now() if source_url else None,
+                },
             )
 
             # ---- pages ----
@@ -237,13 +290,44 @@ def ingest_path(path: str, force: bool = False) -> dict[str, Any]:
 
         amp.close()
 
-    return {
+    # Handle version replacement
+    archived_docs: list[str] = []
+
+    # Mark superseded document as archived
+    if supersedes_doc_id:
+        if mark_document_archived(supersedes_doc_id, "manual"):
+            archived_docs.append(supersedes_doc_id)
+
+    # Mark replaced document as archived (same download_url, different content)
+    if replaced_doc_id:
+        if mark_document_archived(replaced_doc_id, "replaced"):
+            archived_docs.append(replaced_doc_id)
+
+    # Check for content overlap with existing documents
+    overlaps: list[dict[str, Any]] = []
+    if settings.VERSION_OVERLAP_ENABLED and not is_old:
+        overlaps = check_and_handle_overlap(doc_id)
+        for overlap in overlaps:
+            if overlap.get("archived_doc_id"):
+                archived_docs.append(overlap["archived_doc_id"])
+
+    result = {
         "doc_id": doc_id,
-        "title": ex.title,
+        "title": doc_title,
         "source_type": ex.source_type,
         "pages": len(pages),
         "windows": len(windows),
         "anchors": len(anchors),
         "citations": len(citations),
         "citations_resolved": citations_resolved,
+        "is_current": not is_old,
     }
+
+    if archived_docs:
+        result["archived_docs"] = archived_docs
+    if overlaps:
+        result["overlaps"] = overlaps
+    if old_reason:
+        result["archive_reason"] = old_reason
+
+    return result

@@ -203,6 +203,24 @@ class Settings(BaseSettings):
     LOG_JSON: bool = True
     LOG_LEVEL: str = "INFO"
 
+    # Versioning
+    INCLUDE_ARCHIVED_BY_DEFAULT: bool = False  # Whether to include archived docs in search
+
+    # Content overlap detection for version detection
+    VERSION_OVERLAP_ENABLED: bool = True
+    VERSION_OVERLAP_MODE: str = "auto"  # "auto" or "prompt"
+    VERSION_EMBEDDING_THRESHOLD: float = 0.95  # Cosine similarity threshold
+    VERSION_TEXT_OVERLAP_THRESHOLD: float = 0.80  # Text overlap ratio threshold
+
+    # Crawler settings
+    CRAWLER_TIMEOUT: int = 30  # HTTP request timeout in seconds
+    CRAWLER_USER_AGENT: str = "EnterpriseRAG-Crawler/1.0"
+    CRAWLER_MAX_FILE_SIZE_MB: int = 100  # Max file size to download
+    CRAWLER_ALLOWED_EXTENSIONS: str = ".pdf,.docx,.xlsx,.xls,.doc,.html,.htm,.asp,.aspx"  # Comma-separated
+    CRAWLER_VERIFY_SSL: bool = True  # Set False for corporate proxies with SSL inspection
+    CRAWLER_CA_BUNDLE: str | None = None  # Custom CA bundle path (e.g., /etc/ssl/certs/ca-certificates.crt)
+    CRAWLER_PROXY: str | None = None  # HTTP/HTTPS proxy URL (e.g., http://proxy.corp:8080)
+
 
 settings = Settings()
 
