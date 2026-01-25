@@ -116,10 +116,10 @@ def _get_allowed_extensions() -> set[str]:
 
 
 def extract_category_from_url(url: str) -> str | None:
-    """Extract category from URL's ?v= parameter using config mapping.
+    """Extract category from URL's ?v= or ?V= parameter using config mapping.
 
     Args:
-        url: Source URL (e.g., "https://example.com/docs?v=A")
+        url: Source URL (e.g., "https://example.com/docs?v=A" or "?V=A")
 
     Returns:
         Category name if found in mapping, None otherwise
@@ -127,8 +127,8 @@ def extract_category_from_url(url: str) -> str | None:
     parsed = urlparse(url)
     params = parse_qs(parsed.query)
 
-    # Look for ?v= parameter
-    v_values = params.get("v", [])
+    # Look for ?v= or ?V= parameter (case-insensitive)
+    v_values = params.get("v", []) or params.get("V", [])
     if not v_values:
         return None
 
@@ -498,13 +498,11 @@ def crawl_and_ingest(
                                         """
                                         UPDATE documents
                                         SET last_seen_at = now(),
-                                            categories = (
-                                                SELECT array_agg(DISTINCT x ORDER BY x)
-                                                FROM unnest(
-                                                    COALESCE(categories, ARRAY[]::text[]) || ARRAY[%(cat)s]
-                                                ) x
-                                                WHERE x IS NOT NULL
-                                            )
+                                            categories = CASE
+                                                WHEN categories IS NULL THEN ARRAY[%(cat)s]
+                                                WHEN %(cat)s = ANY(categories) THEN categories
+                                                ELSE categories || ARRAY[%(cat)s]
+                                            END
                                         WHERE doc_id = %(doc)s
                                         """,
                                         {"doc": doc_id, "cat": category},

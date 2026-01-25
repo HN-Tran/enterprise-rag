@@ -148,13 +148,7 @@ def ingest_path(
                         cur.execute(
                             """
                             UPDATE documents
-                            SET categories = (
-                                SELECT array_agg(DISTINCT x ORDER BY x)
-                                FROM unnest(
-                                    COALESCE(categories, ARRAY[]::text[]) || ARRAY[%(cat)s]
-                                ) x
-                                WHERE x IS NOT NULL
-                            )
+                            SET categories = COALESCE(categories, ARRAY[]::text[]) || ARRAY[%(cat)s]
                             WHERE doc_id = %(doc)s
                               AND (categories IS NULL OR NOT (%(cat)s = ANY(categories)))
                             RETURNING doc_id
@@ -222,13 +216,9 @@ def ingest_path(
                     last_seen_at=COALESCE(EXCLUDED.last_seen_at, documents.last_seen_at),
                     categories=CASE
                         WHEN cardinality(%(categories)s::text[]) = 0 THEN documents.categories
-                        ELSE (
-                            SELECT array_agg(DISTINCT x ORDER BY x)
-                            FROM unnest(
-                                COALESCE(documents.categories, ARRAY[]::text[]) || %(categories)s::text[]
-                            ) x
-                            WHERE x IS NOT NULL
-                        )
+                        WHEN documents.categories IS NULL THEN %(categories)s::text[]
+                        WHEN %(categories)s::text[] <@ documents.categories THEN documents.categories
+                        ELSE documents.categories || %(categories)s::text[]
                     END,
                     updated_at=now()
                 """,

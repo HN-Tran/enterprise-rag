@@ -149,7 +149,12 @@ Why LangExtract over SpaCy:
 - [ ] Parallel downloads (currently sequential)
 - [ ] Resume interrupted crawls
 
-### 5.3 Advanced Features
+### 5.3 Code Quality
+- [ ] Unify category SQL patterns across ingest.py and crawler.py
+  - Use consistent CASE pattern: `WHEN NULL → new, WHEN exists → keep, ELSE append`
+- [ ] Add sorted categories option (requires `ARRAY(SELECT DISTINCT ... ORDER BY)`)
+
+### 5.4 Advanced Features
 - [ ] Dynamic blend ratio per query type
 - [ ] Conversational context tracking
 - [ ] Multi-modal support (tables, images)
