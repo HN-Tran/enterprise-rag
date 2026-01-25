@@ -499,11 +499,11 @@ def crawl_and_ingest(
                                         UPDATE documents
                                         SET last_seen_at = now(),
                                             categories = (
-                                                SELECT array_agg(DISTINCT elem)
+                                                SELECT array_agg(DISTINCT x ORDER BY x)
                                                 FROM unnest(
-                                                    COALESCE(categories, '{}') || ARRAY[%(cat)s]
-                                                ) AS elem
-                                                WHERE elem IS NOT NULL
+                                                    COALESCE(categories, ARRAY[]::text[]) || ARRAY[%(cat)s]
+                                                ) x
+                                                WHERE x IS NOT NULL
                                             )
                                         WHERE doc_id = %(doc)s
                                         """,

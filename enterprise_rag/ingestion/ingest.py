@@ -149,11 +149,11 @@ def ingest_path(
                             """
                             UPDATE documents
                             SET categories = (
-                                SELECT array_agg(DISTINCT elem)
+                                SELECT array_agg(DISTINCT x ORDER BY x)
                                 FROM unnest(
-                                    COALESCE(categories, '{}') || ARRAY[%(cat)s]
-                                ) AS elem
-                                WHERE elem IS NOT NULL
+                                    COALESCE(categories, ARRAY[]::text[]) || ARRAY[%(cat)s]
+                                ) x
+                                WHERE x IS NOT NULL
                             )
                             WHERE doc_id = %(doc)s
                               AND (categories IS NULL OR NOT (%(cat)s = ANY(categories)))
@@ -221,13 +221,13 @@ def ingest_path(
                     download_url=COALESCE(EXCLUDED.download_url, documents.download_url),
                     last_seen_at=COALESCE(EXCLUDED.last_seen_at, documents.last_seen_at),
                     categories=CASE
-                        WHEN %(categories)s = '{}' THEN documents.categories
+                        WHEN cardinality(%(categories)s::text[]) = 0 THEN documents.categories
                         ELSE (
-                            SELECT array_agg(DISTINCT elem)
+                            SELECT array_agg(DISTINCT x ORDER BY x)
                             FROM unnest(
-                                COALESCE(documents.categories, '{}') || %(categories)s
-                            ) AS elem
-                            WHERE elem IS NOT NULL
+                                COALESCE(documents.categories, ARRAY[]::text[]) || %(categories)s::text[]
+                            ) x
+                            WHERE x IS NOT NULL
                         )
                     END,
                     updated_at=now()
