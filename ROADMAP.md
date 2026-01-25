@@ -141,7 +141,15 @@ Why LangExtract over SpaCy:
 - [ ] Optimize HNSW index parameters
 - [ ] Tiered storage (hot/warm/cold)
 
-### 5.2 Advanced Features
+### 5.2 Crawler Optimizations
+- [x] HTTP conditional requests (ETag/Last-Modified) to skip unchanged files
+- [ ] HEAD request prefetch to populate caching headers without downloading
+  - Trade-off: Trusts server's ETag/Last-Modified instead of verifying SHA256
+  - Use case: Prime cache for existing documents without full re-download
+- [ ] Parallel downloads (currently sequential)
+- [ ] Resume interrupted crawls
+
+### 5.3 Advanced Features
 - [ ] Dynamic blend ratio per query type
 - [ ] Conversational context tracking
 - [ ] Multi-modal support (tables, images)

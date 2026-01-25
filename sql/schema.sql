@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS documents (
   source_url    TEXT,      -- Page where link was found
   download_url  TEXT,      -- Direct file URL
   last_seen_at  TIMESTAMPTZ,  -- Last time found in crawl
+  -- HTTP caching for conditional requests
+  http_etag     TEXT,      -- ETag header from server
+  http_last_modified TEXT, -- Last-Modified header from server
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

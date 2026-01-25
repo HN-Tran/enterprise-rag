@@ -8,12 +8,13 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 
-from enterprise_rag.config import settings
+from enterprise_rag.config import get_category_map, settings
+from enterprise_rag.db import get_conn
 from enterprise_rag.ingestion.ingest import ingest_path
 from enterprise_rag.ingestion.versioning import mark_crawl_seen, mark_orphaned
 
@@ -44,6 +45,9 @@ class DownloadResult:
     link: DiscoveredLink
     local_path: Path | None
     error: str | None = None
+    skipped_not_modified: bool = False  # True if 304 Not Modified
+    http_etag: str | None = None
+    http_last_modified: str | None = None
 
 
 @dataclass
@@ -57,10 +61,81 @@ class IngestResult:
     is_current: bool = True
 
 
+def _get_cached_http_headers(download_url: str) -> tuple[str | None, str | None]:
+    """Get cached ETag and Last-Modified for a download URL.
+
+    Returns:
+        Tuple of (etag, last_modified) or (None, None) if not cached
+    """
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT http_etag, http_last_modified
+                    FROM documents
+                    WHERE download_url = %(url)s AND is_current = TRUE
+                    LIMIT 1
+                    """,
+                    {"url": download_url},
+                )
+                row = cur.fetchone()
+                if row:
+                    return row["http_etag"], row["http_last_modified"]
+    except Exception:
+        pass  # DB not available, skip caching
+    return None, None
+
+
+def _store_http_headers(download_url: str, etag: str | None, last_modified: str | None) -> None:
+    """Store HTTP caching headers for a download URL."""
+    if not etag and not last_modified:
+        return
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE documents
+                    SET http_etag = %(etag)s,
+                        http_last_modified = %(last_mod)s
+                    WHERE download_url = %(url)s
+                    """,
+                    {"url": download_url, "etag": etag, "last_mod": last_modified},
+                )
+            conn.commit()
+    except Exception:
+        pass  # DB not available, skip caching
+
+
 def _get_allowed_extensions() -> set[str]:
     """Get set of allowed file extensions from settings."""
     exts = settings.CRAWLER_ALLOWED_EXTENSIONS.lower().split(",")
     return {e.strip() for e in exts if e.strip()}
+
+
+def extract_category_from_url(url: str) -> str | None:
+    """Extract category from URL's ?v= parameter using config mapping.
+
+    Args:
+        url: Source URL (e.g., "https://example.com/docs?v=A")
+
+    Returns:
+        Category name if found in mapping, None otherwise
+    """
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+
+    # Look for ?v= parameter
+    v_values = params.get("v", [])
+    if not v_values:
+        return None
+
+    v_value = v_values[0]  # Take first value if multiple
+    category_map = get_category_map()
+
+    return category_map.get(v_value)
 
 
 def _get_http_client_kwargs() -> dict[str, Any]:
@@ -239,20 +314,49 @@ def crawl_page(url: str, follow_iframes: bool = True) -> CrawlResult:
 def download_file(link: DiscoveredLink, target_dir: Path) -> DownloadResult:
     """Download a file to the target directory.
 
+    Uses HTTP conditional requests (If-None-Match, If-Modified-Since) to skip
+    downloads when server confirms content is unchanged.
+
     Args:
         link: The discovered link to download
         target_dir: Directory to save the file
 
     Returns:
-        DownloadResult with local path or error
+        DownloadResult with local path, or skipped_not_modified=True if unchanged
     """
     max_size = settings.CRAWLER_MAX_FILE_SIZE_MB * 1024 * 1024
 
+    # Check for cached HTTP headers
+    cached_etag, cached_last_modified = _get_cached_http_headers(link.url)
+
     try:
-        with httpx.Client(**_get_http_client_kwargs()) as client:
+        client_kwargs = _get_http_client_kwargs()
+
+        # Build conditional request headers
+        headers = dict(client_kwargs.get("headers", {}))
+        if cached_etag:
+            headers["If-None-Match"] = cached_etag
+        if cached_last_modified:
+            headers["If-Modified-Since"] = cached_last_modified
+
+        client_kwargs["headers"] = headers
+
+        with httpx.Client(**client_kwargs) as client:
             # Stream the response to check size
             with client.stream("GET", link.url) as response:
+                # Check for 304 Not Modified
+                if response.status_code == 304:
+                    return DownloadResult(
+                        link=link,
+                        local_path=None,
+                        skipped_not_modified=True,
+                    )
+
                 response.raise_for_status()
+
+                # Extract HTTP caching headers for future requests
+                new_etag = response.headers.get("etag")
+                new_last_modified = response.headers.get("last-modified")
 
                 # Check content length if available
                 content_length = response.headers.get("content-length")
@@ -283,7 +387,12 @@ def download_file(link: DiscoveredLink, target_dir: Path) -> DownloadResult:
                             )
                         f.write(chunk)
 
-                return DownloadResult(link=link, local_path=local_path)
+                return DownloadResult(
+                    link=link,
+                    local_path=local_path,
+                    http_etag=new_etag,
+                    http_last_modified=new_last_modified,
+                )
 
     except httpx.TimeoutException:
         return DownloadResult(link=link, local_path=None, error="Download timeout")
@@ -316,7 +425,14 @@ def crawl_and_ingest(
         yield {"type": "crawl_error", "url": url, "error": result.error}
         return
 
-    yield {"type": "crawl_done", "url": url, "link_count": len(result.links)}
+    # Extract category from source URL
+    source_category = extract_category_from_url(url)
+    yield {
+        "type": "crawl_done",
+        "url": url,
+        "link_count": len(result.links),
+        "category": source_category,
+    }
 
     if not result.links:
         yield {"type": "done", "ingested": [], "failed": []}
@@ -351,6 +467,65 @@ def crawl_and_ingest(
                 failed.append({"url": link.url, "error": dl_result.error})
                 continue
 
+            # Extract category from source URL
+            category = extract_category_from_url(link.source_url)
+
+            # Handle 304 Not Modified - update metadata without re-ingesting
+            if dl_result.skipped_not_modified:
+                yield {"type": "not_modified", "url": link.url}
+
+                # Still need to update last_seen_at and accumulate categories
+                try:
+                    with get_conn() as conn:
+                        with conn.cursor() as cur:
+                            # Get doc_id for this download_url
+                            cur.execute(
+                                """
+                                SELECT doc_id FROM documents
+                                WHERE download_url = %(url)s AND is_current = TRUE
+                                LIMIT 1
+                                """,
+                                {"url": link.url},
+                            )
+                            row = cur.fetchone()
+                            if row:
+                                doc_id = row["doc_id"]
+                                seen_doc_ids.append(doc_id)
+
+                                # Update last_seen_at and accumulate category
+                                if category:
+                                    cur.execute(
+                                        """
+                                        UPDATE documents
+                                        SET last_seen_at = now(),
+                                            categories = (
+                                                SELECT array_agg(DISTINCT elem)
+                                                FROM unnest(
+                                                    COALESCE(categories, '{}') || ARRAY[%(cat)s]
+                                                ) AS elem
+                                                WHERE elem IS NOT NULL
+                                            )
+                                        WHERE doc_id = %(doc)s
+                                        """,
+                                        {"doc": doc_id, "cat": category},
+                                    )
+                                else:
+                                    cur.execute(
+                                        "UPDATE documents SET last_seen_at = now() WHERE doc_id = %(doc)s",
+                                        {"doc": doc_id},
+                                    )
+                        conn.commit()
+
+                        ingested.append({
+                            "url": link.url,
+                            "doc_id": doc_id,
+                            "status": "not_modified",
+                            "category": category,
+                        })
+                except Exception as e:
+                    failed.append({"url": link.url, "error": f"304 update failed: {e}"})
+                continue
+
             yield {"type": "download_done", "url": link.url}
 
             # Ingest the file
@@ -362,7 +537,12 @@ def crawl_and_ingest(
                     title_override=link.anchor_text,
                     source_url=link.source_url,
                     download_url=link.url,
+                    category=category,
                 )
+
+                # Store HTTP caching headers for future conditional requests
+                if dl_result.http_etag or dl_result.http_last_modified:
+                    _store_http_headers(link.url, dl_result.http_etag, dl_result.http_last_modified)
 
                 doc_id = ingest_result["doc_id"]
                 seen_doc_ids.append(doc_id)
@@ -373,6 +553,7 @@ def crawl_and_ingest(
                     "doc_id": doc_id,
                     "title": ingest_result.get("title"),
                     "is_current": ingest_result.get("is_current", True),
+                    "category": category,
                 }
 
                 ingested.append(
@@ -382,6 +563,7 @@ def crawl_and_ingest(
                         "title": ingest_result.get("title"),
                         "pages": ingest_result.get("pages"),
                         "is_current": ingest_result.get("is_current", True),
+                        "category": category,
                     }
                 )
 
@@ -424,8 +606,12 @@ def preview_links(url: str) -> dict[str, Any]:
     if result.error:
         return {"error": result.error, "url": url}
 
+    # Extract category from source URL for preview
+    category = extract_category_from_url(url)
+
     return {
         "url": url,
+        "category": category,
         "discovered": [
             {
                 "url": link.url,

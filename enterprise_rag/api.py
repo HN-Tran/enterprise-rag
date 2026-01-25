@@ -67,6 +67,7 @@ class FeedbackRequest(BaseModel):
     query: str
     answer: str
     feedback: str = Field(description="'up' or 'down'")
+    comment: str | None = Field(default=None, description="Optional user comment")
     history: list[dict] | None = Field(default=None, description="Full chat history if available")
 
 
@@ -403,6 +404,10 @@ def submit_feedback(req: FeedbackRequest):
         "answer": req.answer,
         "feedback": req.feedback,
     }
+
+    # Include comment if provided
+    if req.comment:
+        entry["comment"] = req.comment
 
     # Include chat history if provided
     if req.history:

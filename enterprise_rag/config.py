@@ -220,6 +220,7 @@ class Settings(BaseSettings):
     CRAWLER_VERIFY_SSL: bool = True  # Set False for corporate proxies with SSL inspection
     CRAWLER_CA_BUNDLE: str | None = None  # Custom CA bundle path (e.g., /etc/ssl/certs/ca-certificates.crt)
     CRAWLER_PROXY: str | None = None  # HTTP/HTTPS proxy URL (e.g., http://proxy.corp:8080)
+    CRAWLER_CATEGORY_MAP: str = ""  # URL param to category map (e.g., "A:Atwork,B:Beta,C:Corp")
 
 
 settings = Settings()
@@ -315,3 +316,21 @@ def get_effective_limits(complexity: float = 1.0) -> dict[str, Any]:
             limits["max_answer_tokens"] = int(limits["max_answer_tokens"] * min(1.5, multiplier))
 
     return limits
+
+
+def get_category_map() -> dict[str, str]:
+    """Parse CRAWLER_CATEGORY_MAP into a dictionary.
+
+    Format: "A:Atwork,B:Beta,C:Corp"
+    Returns: {"A": "Atwork", "B": "Beta", "C": "Corp"}
+    """
+    if not settings.CRAWLER_CATEGORY_MAP:
+        return {}
+
+    result = {}
+    for pair in settings.CRAWLER_CATEGORY_MAP.split(","):
+        pair = pair.strip()
+        if ":" in pair:
+            key, value = pair.split(":", 1)
+            result[key.strip()] = value.strip()
+    return result

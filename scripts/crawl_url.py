@@ -75,8 +75,11 @@ def main() -> None:
                 continue
 
             links = result.get("discovered", [])
+            category = result.get("category")
             total_discovered += len(links)
-            print(f"\nDiscovered {len(links)} document link(s):\n")
+
+            cat_info = f" (category: {category})" if category else ""
+            print(f"\nDiscovered {len(links)} document link(s){cat_info}:\n")
 
             for i, link in enumerate(links, 1):
                 title = link.get("title") or "(no title)"
@@ -98,7 +101,8 @@ def main() -> None:
                     print(f"[ERROR] Crawl failed: {event['error']}")
 
                 elif event_type == "crawl_done":
-                    print(f"Found {event['link_count']} document link(s)")
+                    cat_info = f" (category: {event['category']})" if event.get("category") else ""
+                    print(f"Found {event['link_count']} document link(s){cat_info}")
 
                 elif event_type == "download_start":
                     if not args.quiet:
@@ -112,6 +116,9 @@ def main() -> None:
                     if not args.quiet:
                         print(f"           Downloaded: {event['url'][:60]}...")
 
+                elif event_type == "not_modified":
+                    print(f"  [304] Not modified, skipped download: {event['url'][:50]}...")
+
                 elif event_type == "ingest_start":
                     if not args.quiet:
                         print("           Ingesting...")
@@ -121,7 +128,8 @@ def main() -> None:
 
                 elif event_type == "ingest_done":
                     status = "" if event.get("is_current", True) else " [archived]"
-                    print(f"  [OK] {event.get('title') or 'Untitled'}{status}")
+                    cat_suffix = f" [{event['category']}]" if event.get("category") else ""
+                    print(f"  [OK] {event.get('title') or 'Untitled'}{status}{cat_suffix}")
                     print(f"       doc_id: {event['doc_id']}")
 
                 elif event_type == "orphaned":

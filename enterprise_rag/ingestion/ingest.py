@@ -66,6 +66,7 @@ def ingest_path(
     source_url: str | None = None,
     download_url: str | None = None,
     supersedes_doc_id: str | None = None,
+    category: str | None = None,
 ) -> dict[str, Any]:
     """Ingest a document into the RAG system.
 
@@ -76,6 +77,7 @@ def ingest_path(
         source_url: Page URL where document link was found (crawler metadata)
         download_url: Direct download URL (crawler metadata)
         supersedes_doc_id: If set, mark this doc_id as archived (manual version replacement)
+        category: Category to add to document (accumulated, not replaced)
 
     Returns:
         Dict with ingestion results or duplicate status
@@ -110,13 +112,50 @@ def ingest_path(
                 existing = cur.fetchone()
 
                 if existing and existing["sha256"] == file_hash:
-                    # File hasn't changed, skip re-ingestion
-                    return {
+                    # File hasn't changed - but still update metadata if needed
+                    updates_made = []
+
+                    # Accumulate category if provided
+                    if category:
+                        cur.execute(
+                            """
+                            UPDATE documents
+                            SET categories = (
+                                SELECT array_agg(DISTINCT elem)
+                                FROM unnest(
+                                    COALESCE(categories, '{}') || ARRAY[%(cat)s]
+                                ) AS elem
+                                WHERE elem IS NOT NULL
+                            )
+                            WHERE doc_id = %(doc)s
+                              AND (categories IS NULL OR NOT (%(cat)s = ANY(categories)))
+                            RETURNING doc_id
+                            """,
+                            {"doc": doc_id, "cat": category},
+                        )
+                        if cur.fetchone():
+                            updates_made.append(f"category:{category}")
+
+                    # Update last_seen_at if from crawler
+                    if source_url:
+                        cur.execute(
+                            "UPDATE documents SET last_seen_at = now() WHERE doc_id = %(doc)s",
+                            {"doc": doc_id},
+                        )
+
+                    conn.commit()
+
+                    result = {
                         "status": "unchanged",
                         "doc_id": doc_id,
                         "message": "Document already ingested with same content",
                         "updated_at": existing["updated_at"].isoformat() if existing["updated_at"] else None,
                     }
+                    if updates_made:
+                        result["metadata_updated"] = updates_made
+                    if category:
+                        result["category"] = category
+                    return result
 
     pages = [norm_text(p) for p in ex.pages]
     anchors = build_anchors(pages)
@@ -125,18 +164,23 @@ def ingest_path(
     with get_conn() as conn:
         with conn.cursor() as cur:
             # ---- documents ----
+            # Build categories array: new category (if any) will be merged with existing
+            new_categories = [category] if category else []
+
             cur.execute(
                 """
                 INSERT INTO documents (
                     doc_id, title, source_type, uri, sha256,
                     is_current, archive_reason,
                     source_url, download_url, last_seen_at,
+                    categories,
                     updated_at
                 )
                 VALUES (
                     %(doc)s, %(title)s, %(typ)s, %(uri)s, %(sha)s,
                     %(is_current)s, %(archive_reason)s,
                     %(source_url)s, %(download_url)s, %(last_seen_at)s,
+                    %(categories)s,
                     now()
                 )
                 ON CONFLICT (doc_id) DO UPDATE
@@ -147,6 +191,16 @@ def ingest_path(
                     source_url=COALESCE(EXCLUDED.source_url, documents.source_url),
                     download_url=COALESCE(EXCLUDED.download_url, documents.download_url),
                     last_seen_at=COALESCE(EXCLUDED.last_seen_at, documents.last_seen_at),
+                    categories=CASE
+                        WHEN %(categories)s = '{}' THEN documents.categories
+                        ELSE (
+                            SELECT array_agg(DISTINCT elem)
+                            FROM unnest(
+                                COALESCE(documents.categories, '{}') || %(categories)s
+                            ) AS elem
+                            WHERE elem IS NOT NULL
+                        )
+                    END,
                     updated_at=now()
                 """,
                 {
@@ -160,6 +214,7 @@ def ingest_path(
                     "source_url": source_url,
                     "download_url": download_url,
                     "last_seen_at": datetime.now() if source_url else None,
+                    "categories": new_categories,
                 },
             )
 
@@ -322,6 +377,9 @@ def ingest_path(
         "citations_resolved": citations_resolved,
         "is_current": not is_old,
     }
+
+    if category:
+        result["category"] = category
 
     if archived_docs:
         result["archived_docs"] = archived_docs
