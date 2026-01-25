@@ -6,7 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
-from enterprise_rag.config import settings
+from enterprise_rag.config import settings, EMBEDDING_PROFILES, get_embedding_profile
 from enterprise_rag.db import get_conn
 from enterprise_rag.llm import embed_texts
 from enterprise_rag.retrieval.postgres_retrieval import bm25_candidates, vector_candidates
@@ -76,6 +76,7 @@ def retrieve(
     expand_citations: bool = True,
     debug_timing: bool = False,
     include_archived: bool = False,
+    embedding_model: str | None = None,
 ) -> dict[str, Any]:
     timings: dict[str, float] = {}
 
@@ -101,7 +102,7 @@ def retrieve(
 
     # Batch embed all rewrites at once (single API call instead of N calls)
     t0 = time.perf_counter()
-    embeddings = embed_texts(rewrites)
+    embeddings = embed_texts(rewrites, embedding_model)
     timings["embed_texts"] = time.perf_counter() - t0
 
     # Parallel candidate generation using ThreadPoolExecutor
@@ -123,7 +124,7 @@ def retrieve(
         }
         vec_futures = {
             executor.submit(
-                vector_candidates, rq, settings.CANDIDATES_VEC, emb, include_archived
+                vector_candidates, rq, settings.CANDIDATES_VEC, emb, include_archived, embedding_model
             ): ("vec", rq)
             for rq, emb in zip(rewrites, embeddings)
         }

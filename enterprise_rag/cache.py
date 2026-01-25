@@ -59,23 +59,26 @@ def _hash_key(*args: Any, **kwargs: Any) -> str:
 
 
 def cached_embeddings(func: F) -> F:
-    """Cache embedding results keyed by text content.
+    """Cache embedding results keyed by text content and profile.
 
-    Embeddings are deterministic for the same text, so we can cache them
+    Embeddings are deterministic for the same text and model, so we can cache them
     with a long TTL (24h default).
     """
 
     @wraps(func)
-    def wrapper(texts: list[str]) -> list[list[float]]:
+    def wrapper(texts: list[str], profile_name: str | None = None) -> list[list[float]]:
         if not is_cache_available():
-            return func(texts)
+            return func(texts, profile_name)
+
+        # Include profile in cache key to differentiate between models
+        profile_suffix = f":{profile_name}" if profile_name else ""
 
         # Check cache for each text individually
         cached_results: dict[int, list[float]] = {}
         uncached_texts: list[tuple[int, str]] = []
 
         for i, text in enumerate(texts):
-            cache_key = f"embed:{_hash_key(text)}"
+            cache_key = f"embed{profile_suffix}:{_hash_key(text)}"
             cached = _redis.get(cache_key)
             if cached:
                 cached_results[i] = json.loads(cached)
@@ -88,11 +91,11 @@ def cached_embeddings(func: F) -> F:
 
         # Compute uncached embeddings
         texts_to_embed = [t for _, t in uncached_texts]
-        new_embeddings = func(texts_to_embed)
+        new_embeddings = func(texts_to_embed, profile_name)
 
         # Cache new embeddings
         for (orig_idx, text), embedding in zip(uncached_texts, new_embeddings):
-            cache_key = f"embed:{_hash_key(text)}"
+            cache_key = f"embed{profile_suffix}:{_hash_key(text)}"
             _redis.setex(cache_key, settings.CACHE_EMBED_TTL, json.dumps(embedding))
             cached_results[orig_idx] = embedding
 

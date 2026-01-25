@@ -67,6 +67,7 @@ def vector_candidates(
     k: int,
     embedding: list[float] | None = None,
     include_archived: bool = False,
+    embedding_model: str | None = None,
 ) -> list[dict[str, Any]]:
     """Retrieve candidates by vector similarity.
 
@@ -75,10 +76,15 @@ def vector_candidates(
         k: Number of candidates to return
         embedding: Pre-computed embedding vector. If None, will compute it.
         include_archived: If True, include archived documents (is_current=FALSE)
+        embedding_model: Optional embedding profile name ('nomic', 'qwen'). If None, uses default.
 
-    Uses the active embedding profile to determine which column to query.
+    Uses the specified or active embedding profile to determine which column to query.
     """
-    profile = get_embedding_profile()
+    from enterprise_rag.config import EMBEDDING_PROFILES
+    if embedding_model and embedding_model in EMBEDDING_PROFILES:
+        profile = EMBEDDING_PROFILES[embedding_model]
+    else:
+        profile = get_embedding_profile()
     col = profile.db_column  # e.g., "embedding" or "embedding_nomic"
 
     # Filter by is_current unless include_archived is True

@@ -24,13 +24,31 @@ def _auth_headers(api_key: str) -> dict[str, str]:
     return {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
 
-def _embed_texts_impl(texts: list[str]) -> list[list[float]]:
+def _embed_texts_impl(texts: list[str], profile_name: str | None = None) -> list[list[float]]:
     """Compute embeddings via embedding endpoint (uncached).
 
     Uses the active embedding profile (EMBEDDING_PROFILE) to determine model and dimensions.
     Supports both OpenAI-compatible (Ollama) and TEI formats.
+
+    Args:
+        texts: List of texts to embed
+        profile_name: Optional profile name ('nomic', 'qwen'). If None, uses default profile.
     """
-    profile = get_embedding_profile()
+    from enterprise_rag.config import EMBEDDING_PROFILES
+    if profile_name and profile_name in EMBEDDING_PROFILES:
+        profile = EMBEDDING_PROFILES[profile_name]
+        # For nomic, populate base_url from settings
+        if profile.name == "nomic" and profile.base_url is None:
+            from enterprise_rag.config import EmbeddingProfile
+            profile = EmbeddingProfile(
+                name=profile.name,
+                model=profile.model,
+                dim=profile.dim,
+                db_column=profile.db_column,
+                base_url=settings.NOMIC_BASE_URL if hasattr(settings, 'NOMIC_BASE_URL') else None,
+            )
+    else:
+        profile = get_embedding_profile()
     base_url = profile.base_url or settings.EMBED_BASE_URL
 
     # TEI uses different format than OpenAI

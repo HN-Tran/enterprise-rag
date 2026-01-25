@@ -61,6 +61,7 @@ class SearchRequest(BaseModel):
     k: int = Field(default=8, description="Number of sources to retrieve")
     history: list[ChatMessage] | None = Field(default=None, description="Previous chat messages for context")
     include_archived: bool = Field(default=False, description="Include archived document versions in search")
+    embedding_model: str | None = Field(default=None, description="Embedding model: 'nomic' (fast) or 'qwen' (precise). Default: server setting")
 
 
 class FeedbackRequest(BaseModel):
@@ -327,7 +328,7 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
     def generate():
         try:
             # Retrieval phase
-            result = retrieve(req.query, include_archived=req.include_archived)
+            result = retrieve(req.query, include_archived=req.include_archived, embedding_model=req.embedding_model)
             hits = result["hits"][: req.k]
             plan = result.get("plan")
 
