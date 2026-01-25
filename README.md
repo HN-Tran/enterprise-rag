@@ -102,3 +102,12 @@ enterprise_rag/
 - [uv](https://docs.astral.sh/uv/) package manager
 - Docker & Docker Compose
 - OpenAI-compatible LLM/embedding endpoints
+
+### Optional System Dependencies
+
+For legacy `.doc` file support, install one of:
+```bash
+sudo apt install antiword    # Recommended
+# or
+sudo apt install catdoc      # Alternative
+```

@@ -83,7 +83,6 @@ def ingest_path(
         Dict with ingestion results or duplicate status
     """
     ex = extract_any(path)
-    doc_id = make_doc_id(ex.uri)
     file_hash = sha256_file(path)
 
     # Use title override if provided (e.g., from crawler anchor text)
@@ -91,6 +90,35 @@ def ingest_path(
 
     # Check if this file pattern indicates an old version
     is_old, old_reason = is_old_by_pattern(ex.uri)
+
+    # For crawled files, check for existing document by download_url or sha256
+    # This prevents duplicates when same file is downloaded to different temp paths
+    existing_doc_id: str | None = None
+    if download_url or file_hash:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                # First try by download_url (most reliable for crawled files)
+                if download_url:
+                    cur.execute(
+                        "SELECT doc_id FROM documents WHERE download_url = %(url)s LIMIT 1",
+                        {"url": download_url},
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        existing_doc_id = row["doc_id"]
+
+                # Fallback: check by sha256 (same content = same document)
+                if not existing_doc_id:
+                    cur.execute(
+                        "SELECT doc_id FROM documents WHERE sha256 = %(sha)s LIMIT 1",
+                        {"sha": file_hash},
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        existing_doc_id = row["doc_id"]
+
+    # Use existing doc_id if found, otherwise generate from URI
+    doc_id = existing_doc_id or make_doc_id(ex.uri)
 
     # Check if this URL was previously ingested with different content
     replaced_doc_id: str | None = None
@@ -103,7 +131,7 @@ def ingest_path(
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT doc_id, sha256, updated_at
+                    SELECT doc_id, sha256, title, updated_at
                     FROM documents
                     WHERE doc_id = %(doc)s
                     """,
@@ -148,6 +176,7 @@ def ingest_path(
                     result = {
                         "status": "unchanged",
                         "doc_id": doc_id,
+                        "title": existing["title"],
                         "message": "Document already ingested with same content",
                         "updated_at": existing["updated_at"].isoformat() if existing["updated_at"] else None,
                     }

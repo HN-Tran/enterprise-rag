@@ -547,6 +547,9 @@ def crawl_and_ingest(
                 doc_id = ingest_result["doc_id"]
                 seen_doc_ids.append(doc_id)
 
+                # Check if document was unchanged (skipped re-indexing)
+                status = ingest_result.get("status")  # "unchanged" if skipped
+
                 yield {
                     "type": "ingest_done",
                     "url": link.url,
@@ -554,6 +557,7 @@ def crawl_and_ingest(
                     "title": ingest_result.get("title"),
                     "is_current": ingest_result.get("is_current", True),
                     "category": category,
+                    "status": status,
                 }
 
                 ingested.append(
@@ -564,6 +568,7 @@ def crawl_and_ingest(
                         "pages": ingest_result.get("pages"),
                         "is_current": ingest_result.get("is_current", True),
                         "category": category,
+                        "status": status,
                     }
                 )
 

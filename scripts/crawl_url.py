@@ -57,6 +57,7 @@ def main() -> None:
         sys.exit(1)
 
     total_ingested = 0
+    total_skipped = 0  # 304 Not Modified
     total_failed = 0
     total_orphaned = 0
     total_discovered = 0  # For dry-run mode
@@ -127,10 +128,14 @@ def main() -> None:
                     print(f"  [FAILED] Ingest: {event['error']}")
 
                 elif event_type == "ingest_done":
-                    status = "" if event.get("is_current", True) else " [archived]"
+                    archived_status = "" if event.get("is_current", True) else " [archived]"
                     cat_suffix = f" [{event['category']}]" if event.get("category") else ""
-                    print(f"  [OK] {event.get('title') or 'Untitled'}{status}{cat_suffix}")
-                    print(f"       doc_id: {event['doc_id']}")
+                    # Show if document was unchanged (skipped re-indexing)
+                    if event.get("status") == "unchanged":
+                        print(f"  [SKIP] {event.get('title') or 'Untitled'} (unchanged){cat_suffix}")
+                    else:
+                        print(f"  [OK] {event.get('title') or 'Untitled'}{archived_status}{cat_suffix}")
+                        print(f"       doc_id: {event['doc_id']}")
 
                 elif event_type == "orphaned":
                     if event["count"] > 0:
@@ -141,12 +146,19 @@ def main() -> None:
                     failed = event.get("failed", [])
                     orphaned = event.get("orphaned_count", 0)
 
-                    total_ingested += len(ingested)
+                    # Separate skipped (304 or unchanged) from actually ingested
+                    skipped = [i for i in ingested if i.get("status") in ("not_modified", "unchanged")]
+                    actually_ingested = [i for i in ingested if i.get("status") not in ("not_modified", "unchanged")]
+
+                    total_ingested += len(actually_ingested)
+                    total_skipped += len(skipped)
                     total_failed += len(failed)
                     total_orphaned += orphaned
 
                     print(f"\nSummary for {url}:")
-                    print(f"  Ingested: {len(ingested)}")
+                    print(f"  Ingested: {len(actually_ingested)}")
+                    if skipped:
+                        print(f"  Skipped:  {len(skipped)} (unchanged)")
                     print(f"  Failed:   {len(failed)}")
                     if orphaned > 0:
                         print(f"  Orphaned: {orphaned}")
@@ -161,6 +173,8 @@ def main() -> None:
             print(f"  Discovered:   {total_discovered}")
         else:
             print(f"  Ingested:     {total_ingested}")
+            if total_skipped > 0:
+                print(f"  Skipped:      {total_skipped} (unchanged)")
             print(f"  Failed:       {total_failed}")
             if total_orphaned > 0:
                 print(f"  Orphaned:     {total_orphaned}")

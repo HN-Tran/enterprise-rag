@@ -217,6 +217,68 @@ def extract_docx(path: str) -> ExtractedDoc:
     return ExtractedDoc(title=p.stem, source_type="docx", uri=str(p.resolve()), pages=sections)
 
 
+def extract_doc(path: str) -> ExtractedDoc:
+    """Extract text from legacy .doc files using antiword or catdoc."""
+    import subprocess
+
+    p = Path(path)
+    text = ""
+
+    # Try antiword first (better formatting)
+    try:
+        result = subprocess.run(
+            ["antiword", "-w", "0", path],  # -w 0 = no line wrapping
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            text = result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Fallback to catdoc
+    if not text:
+        try:
+            result = subprocess.run(
+                ["catdoc", "-w", path],  # -w = no line wrapping
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode == 0:
+                text = result.stdout
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    if not text:
+        raise ValueError(
+            f"Cannot extract .doc file: {path}. "
+            "Install 'antiword' or 'catdoc': sudo apt install antiword catdoc"
+        )
+
+    # Split into logical sections (similar to docx)
+    paragraphs = [x.strip() for x in text.split("\n\n") if x.strip()]
+    sections: List[str] = []
+    buf: list[str] = []
+    size = 0
+
+    for para in paragraphs:
+        if size + len(para) > 12000 and buf:
+            sections.append("\n\n".join(buf).strip())
+            buf, size = [], 0
+        buf.append(para)
+        size += len(para)
+
+    if buf:
+        sections.append("\n\n".join(buf).strip())
+
+    if not sections:
+        sections = [""]
+
+    return ExtractedDoc(title=p.stem, source_type="doc", uri=str(p.resolve()), pages=sections)
+
+
 def extract_xlsx(path: str) -> ExtractedDoc:
     from openpyxl import load_workbook
 
@@ -337,6 +399,8 @@ def extract_any(path: str) -> ExtractedDoc:
         return extract_pdf(path)
     if ext == ".docx":
         return extract_docx(path)
+    if ext == ".doc":
+        return extract_doc(path)
     if ext == ".xls":
         return extract_xls(path)
     if ext in (".xlsx", ".xlsm"):
