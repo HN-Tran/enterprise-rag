@@ -80,7 +80,7 @@ def _fetch_cited_windows(doc_ids: list[str]) -> list[dict[str, Any]]:
                 """
                 SELECT DISTINCT ON (w.doc_id)
                     w.window_id, w.doc_id, w.page_start, w.page_end, w.text,
-                    d.title, d.uri, d.download_url
+                    d.title, d.download_url
                 FROM windows w
                 JOIN documents d ON d.doc_id = w.doc_id
                 WHERE w.doc_id = ANY(%s)
@@ -90,22 +90,16 @@ def _fetch_cited_windows(doc_ids: list[str]) -> list[dict[str, Any]]:
             )
             rows = cur.fetchall()
 
-    results = []
-    for r in rows:
-        # Prefer download_url, fall back to uri if it looks like a URL
-        url = r["download_url"]
-        if not url:
-            uri = r["uri"] or ""
-            if uri.startswith(("http://", "https://")):
-                url = uri
-        results.append({
+    return [
+        {
             "window_id": r["window_id"],
             "doc_id": r["doc_id"],
             "page_start": r["page_start"],
             "page_end": r["page_end"],
             "text": r["text"],
             "title": r["title"],
-            "download_url": url,
+            "download_url": r["download_url"],
             "source_type": "citation_chain",
-        })
-    return results
+        }
+        for r in rows
+    ]
