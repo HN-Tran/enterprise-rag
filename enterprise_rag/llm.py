@@ -34,19 +34,22 @@ def _embed_texts_impl(texts: list[str], profile_name: str | None = None) -> list
         texts: List of texts to embed
         profile_name: Optional profile name ('nomic', 'qwen'). If None, uses default profile.
     """
-    from enterprise_rag.config import EMBEDDING_PROFILES
+    from enterprise_rag.config import EMBEDDING_PROFILES, EmbeddingProfile
+
+    # Get the appropriate profile
     if profile_name and profile_name in EMBEDDING_PROFILES:
-        profile = EMBEDDING_PROFILES[profile_name]
+        base_profile = EMBEDDING_PROFILES[profile_name]
         # For nomic, populate base_url from settings
-        if profile.name == "nomic" and profile.base_url is None:
-            from enterprise_rag.config import EmbeddingProfile
+        if base_profile.name == "nomic" and base_profile.base_url is None:
             profile = EmbeddingProfile(
-                name=profile.name,
-                model=profile.model,
-                dim=profile.dim,
-                db_column=profile.db_column,
+                name=base_profile.name,
+                model=base_profile.model,
+                dim=base_profile.dim,
+                db_column=base_profile.db_column,
                 base_url=settings.NOMIC_BASE_URL if hasattr(settings, 'NOMIC_BASE_URL') else None,
             )
+        else:
+            profile = base_profile
     else:
         profile = get_embedding_profile()
     base_url = profile.base_url or settings.EMBED_BASE_URL
