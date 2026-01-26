@@ -71,6 +71,10 @@ class FeedbackRequest(BaseModel):
     feedback: str = Field(description="'up' or 'down'")
     comment: str | None = Field(default=None, description="Optional user comment")
     history: list[dict] | None = Field(default=None, description="Full chat history if available")
+    sources: list[dict] | None = Field(default=None, description="Ranked sources returned for the query")
+    category: str | None = Field(default=None, description="Selected category filter")
+    embedding_model: str | None = Field(default=None, description="Embedding model used: 'nomic' or 'qwen'")
+    settings: dict | None = Field(default=None, description="User settings (chatHistory, includeArchived)")
 
 
 class CrawlRequest(BaseModel):
@@ -414,6 +418,16 @@ def submit_feedback(req: FeedbackRequest):
     # Include chat history if provided
     if req.history:
         entry["history"] = req.history
+
+    # Include sources, category, embedding model, and settings if provided
+    if req.sources:
+        entry["sources"] = req.sources
+    if req.category:
+        entry["category"] = req.category
+    if req.embedding_model:
+        entry["embedding_model"] = req.embedding_model
+    if req.settings:
+        entry["settings"] = req.settings
 
     with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
