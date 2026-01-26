@@ -22,7 +22,7 @@ def _hydrate_docs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT doc_id, title, download_url, category, categories FROM documents WHERE doc_id = ANY(%s)",
+                "SELECT doc_id, title, download_url, source_type, categories FROM documents WHERE doc_id = ANY(%s)",
                 (doc_ids,),
             )
             dmap = {r["doc_id"]: r for r in cur.fetchall()}
@@ -33,7 +33,7 @@ def _hydrate_docs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         r2 = dict(r)
         r2["title"] = d.get("title")
         r2["download_url"] = d.get("download_url")
-        r2["category"] = d.get("category")
+        r2["source_type"] = d.get("source_type")
         r2["categories"] = d.get("categories") or []
         out.append(r2)
     return out
@@ -77,6 +77,7 @@ def retrieve(
     debug_timing: bool = False,
     include_archived: bool = False,
     embedding_model: str | None = None,
+    categories: list[str] | None = None,
 ) -> dict[str, Any]:
     timings: dict[str, float] = {}
 
@@ -93,7 +94,8 @@ def retrieve(
 
     rewrites: list[str] = plan.get("rewrites", [query])
     bm25_q: str = plan.get("bm25_query", query)
-    cats: list[str] = plan.get("categories", [])
+    # Frontend categories override LLM-inferred ones
+    cats: list[str] = categories if categories else plan.get("categories", [])
 
     # Limit rewrites
     rewrites = rewrites[:settings.MAX_QUERY_REWRITES]
@@ -124,7 +126,7 @@ def retrieve(
         }
         vec_futures = {
             executor.submit(
-                vector_candidates, rq, settings.CANDIDATES_VEC, emb, include_archived, embedding_model
+                vector_candidates, rq, settings.CANDIDATES_VEC, emb, include_archived, embedding_model, cats or None
             ): ("vec", rq)
             for rq, emb in zip(rewrites, embeddings)
         }
@@ -158,6 +160,7 @@ def retrieve(
             hit_doc_ids,
             max_depth=getattr(settings, "CITATION_EXPAND_DEPTH", 2),
             max_cited=getattr(settings, "CITATION_MAX_DOCS", 4),
+            include_archived=include_archived,
         )
     timings["citation_expand"] = time.perf_counter() - t0
 

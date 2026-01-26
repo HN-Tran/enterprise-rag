@@ -55,6 +55,7 @@ def pack_context(
                 "doc_id": h["doc_id"],
                 "title": h.get("title") or "Unbekannt",
                 "download_url": h.get("download_url"),
+                "source_type": h.get("source_type"),
                 "category": h.get("category"),
                 "location": location,
                 "page_start": page_start,

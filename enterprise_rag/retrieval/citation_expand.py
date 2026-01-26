@@ -13,6 +13,7 @@ def expand_with_citations(
     hit_doc_ids: list[str],
     max_depth: int = 2,
     max_cited: int = 4,
+    include_archived: bool = False,
 ) -> list[dict[str, Any]]:
     """
     Expand retrieval context with documents from citation chains.
@@ -61,10 +62,10 @@ def expand_with_citations(
     sorted_cited = sorted(cited_doc_ids.items(), key=lambda x: x[1])[:max_cited]
     doc_ids_to_fetch = [doc_id for doc_id, _ in sorted_cited]
 
-    return _fetch_cited_windows(doc_ids_to_fetch)
+    return _fetch_cited_windows(doc_ids_to_fetch, include_archived)
 
 
-def _fetch_cited_windows(doc_ids: list[str]) -> list[dict[str, Any]]:
+def _fetch_cited_windows(doc_ids: list[str], include_archived: bool = False) -> list[dict[str, Any]]:
     """
     Fetch representative windows from cited documents.
 
@@ -73,17 +74,21 @@ def _fetch_cited_windows(doc_ids: list[str]) -> list[dict[str, Any]]:
     if not doc_ids:
         return []
 
+    # Filter by is_current unless include_archived is True
+    current_filter = "" if include_archived else "AND d.is_current = TRUE"
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             # Get first window from each doc (by page_start)
             cur.execute(
-                """
+                f"""
                 SELECT DISTINCT ON (w.doc_id)
                     w.window_id, w.doc_id, w.page_start, w.page_end, w.text,
                     d.title, d.download_url
                 FROM windows w
                 JOIN documents d ON d.doc_id = w.doc_id
                 WHERE w.doc_id = ANY(%s)
+                {current_filter}
                 ORDER BY w.doc_id, w.page_start
                 """,
                 (doc_ids,),

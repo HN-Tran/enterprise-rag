@@ -15,11 +15,20 @@ Du bist ein präziser Frage-Antwort-Assistent. Du antwortest NUR mit validem JSO
 
 KRITISCH: Du MUSST als reines JSON antworten. Kein Markdown, keine Erklärungen außerhalb des JSON.
 
+ANTWORTLÄNGE:
+- Wertfragen (Zahlen, Namen, Daten, Ja/Nein): Kurz und knapp, nur der Wert mit Quelle.
+  Beispiel: "Der Umsatz 2024 beträgt 1,2 Mio. EUR [1]."
+- Erklärungsfragen (Warum, Wie, Was bedeutet): Ausführlich und korrekt erklären.
+  Beispiel: "Das Verfahren funktioniert wie folgt: ... [1]. Dabei ist zu beachten, dass ... [2]."
+- Viele Werte/Argumente: Wenn die Antwort viele Einzelwerte oder Argumente enthält, \
+die nicht alle im Text passen, verweise auf die Quelle: "Details siehe [1], Seite 12-14."
+
 REGELN:
-1. Beantworte die Frage DIREKT in 1-2 Sätzen im "answer" Feld
-2. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
-3. Verwende Quellenverweise [1], [2] im "answer" Text
-4. Gib NUR das JSON zurück, nichts anderes
+1. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
+2. Verwende Quellenverweise [1], [2] im "answer" Text
+3. Gib NUR das JSON zurück, nichts anderes
+4. Wenn die Quellen KEINE klare, sichere Antwort ermöglichen: \
+Verwende die Standardantwort (siehe unten). Lieber keine Antwort als eine unsichere.
 
 AUSGABEFORMAT (exakt dieses JSON-Schema verwenden):
 
@@ -44,9 +53,10 @@ Konfidenz-Bewertung:
 - medium: 2 Belege oder teilweise Übereinstimmung
 - low: Schwache Belege oder Unsicherheit
 
-Wenn KEINE belastbaren Belege vorhanden sind:
+Wenn KEINE belastbaren Belege vorhanden sind ODER die Antwort nicht sicher ableitbar ist:
 - answer = "Nicht genügend belastbare Belege im Korpus gefunden."
 - overall_confidence = "low"
+- Gib trotzdem die besten verfügbaren sources zurück, damit der Nutzer selbst nachschlagen kann.
 
 Bei nur einem Beleg: Antworte trotzdem, aber setze overall_confidence = "low".
 """
@@ -290,13 +300,17 @@ def _build_insufficient_response(
 _STREAM_SYSTEM = """\
 Du bist ein präziser Frage-Antwort-Assistent.
 
-REGELN:
-1. Beantworte die Frage DIREKT in 1-2 Sätzen
-2. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
-3. Verwende Quellenverweise [1], [2] im Text
-4. Gib NUR die Antwort zurück, keine Einleitungen oder Erklärungen
+ANTWORTLÄNGE:
+- Wertfragen (Zahlen, Namen, Daten, Ja/Nein): Kurz und knapp, nur der Wert mit Quelle.
+- Erklärungsfragen (Warum, Wie, Was bedeutet): Ausführlich und korrekt erklären.
+- Viele Werte/Argumente: Verweise auf die Quelle, wenn nicht alles in den Text passt.
 
-Wenn KEINE Belege vorhanden: "Keine belastbaren Belege im Korpus gefunden."
+REGELN:
+1. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
+2. Verwende Quellenverweise [1], [2] im Text
+3. Gib NUR die Antwort zurück, keine Einleitungen oder Erklärungen
+4. Wenn die Quellen KEINE sichere Antwort ermöglichen: \
+"Nicht genügend belastbare Belege im Korpus gefunden." Lieber keine Antwort als eine unsichere.
 """
 
 
@@ -329,6 +343,8 @@ def stream_answer(
             "location": w.get("location", ""),
             "snippet": w.get("text", "")[:200],
             "uri": w.get("download_url"),
+            "download_url": w.get("download_url"),
+            "source_type": w.get("source_type"),
         }
         for i, w in enumerate(windows)
     ]

@@ -33,17 +33,16 @@ def bm25_candidates(
                 cur.execute(
                     f"""
                     SELECT w.window_id, w.doc_id, w.page_start, w.page_end, w.text,
-                           ts_rank_cd(w.tsv, websearch_to_tsquery('simple', %(q)s))
-                           * CASE WHEN d.category = ANY(%(cats)s) THEN %(boost)s ELSE 1.0 END
-                           AS score
+                           ts_rank_cd(w.tsv, websearch_to_tsquery('simple', %(q)s)) AS score
                     FROM windows w
                     JOIN documents d ON d.doc_id = w.doc_id
                     WHERE w.tsv @@ websearch_to_tsquery('simple', %(q)s)
+                    AND d.categories && %(cats)s::text[]
                     {current_filter}
                     ORDER BY score DESC
                     LIMIT %(k)s
                     """,
-                    {"q": query, "k": k, "cats": cats, "boost": settings.CATEGORY_BOOST},
+                    {"q": query, "k": k, "cats": cats},
                 )
             else:
                 cur.execute(
@@ -68,6 +67,7 @@ def vector_candidates(
     embedding: list[float] | None = None,
     include_archived: bool = False,
     embedding_model: str | None = None,
+    categories: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Retrieve candidates by vector similarity.
 
@@ -77,6 +77,7 @@ def vector_candidates(
         embedding: Pre-computed embedding vector. If None, will compute it.
         include_archived: If True, include archived documents (is_current=FALSE)
         embedding_model: Optional embedding profile name ('nomic', 'qwen'). If None, uses default.
+        categories: Optional list of categories for hard filtering
 
     Uses the specified or active embedding profile to determine which column to query.
     """
@@ -89,8 +90,13 @@ def vector_candidates(
 
     # Filter by is_current unless include_archived is True
     current_filter = "" if include_archived else "AND d.is_current = TRUE"
+    cat_filter = "AND d.categories && %(cats)s::text[]" if categories else ""
 
     qvec = embedding if embedding is not None else embed_texts([query])[0]
+    params: dict[str, Any] = {"vec": qvec, "k": k}
+    if categories:
+        params["cats"] = categories
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             # Dynamic column name - safe because it comes from config, not user input
@@ -102,9 +108,10 @@ def vector_candidates(
                 JOIN documents d ON d.doc_id = w.doc_id
                 WHERE w.{col} IS NOT NULL
                 {current_filter}
+                {cat_filter}
                 ORDER BY w.{col} <=> %(vec)s::vector
                 LIMIT %(k)s
                 """,
-                {"vec": qvec, "k": k},
+                params,
             )
             return cur.fetchall()

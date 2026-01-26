@@ -232,7 +232,19 @@ def _extract_links_from_soup(
     links: list[DiscoveredLink] = []
 
     for anchor in soup.find_all("a", href=True):
-        href = anchor["href"]
+        href = anchor["href"].strip()
+
+        # Extract HTTP URLs embedded in mailto: body parameters
+        if href.lower().startswith("mailto:"):
+            http_match = re.search(r"(https?://[^\s&\"']+)", href)
+            if http_match:
+                href = http_match.group(1)
+            else:
+                continue
+
+        # Skip non-HTTP schemes (javascript:, ftp:, tel:, etc.)
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", href) and not href.lower().startswith(("http://", "https://")):
+            continue
 
         # Resolve relative URLs
         full_url = urljoin(base_url, href)

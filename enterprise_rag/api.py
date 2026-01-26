@@ -62,6 +62,7 @@ class SearchRequest(BaseModel):
     history: list[ChatMessage] | None = Field(default=None, description="Previous chat messages for context")
     include_archived: bool = Field(default=False, description="Include archived document versions in search")
     embedding_model: str | None = Field(default=None, description="Embedding model: 'nomic' (fast) or 'qwen' (precise). Default: server setting")
+    categories: list[str] | None = Field(default=None, description="Filter by document categories (e.g. ['Atwork'])")
 
 
 class FeedbackRequest(BaseModel):
@@ -223,7 +224,7 @@ def ingest_status(job_id: str) -> dict:
 
 @app.post("/search", response_model=SearchResponse)
 def search(req: SearchRequest) -> SearchResponse:
-    result = retrieve(req.query, include_archived=req.include_archived)
+    result = retrieve(req.query, include_archived=req.include_archived, categories=req.categories)
     hits = result["hits"][: req.k]
     plan = result.get("plan")
 
@@ -328,7 +329,7 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
     def generate():
         try:
             # Retrieval phase
-            result = retrieve(req.query, include_archived=req.include_archived, embedding_model=req.embedding_model)
+            result = retrieve(req.query, include_archived=req.include_archived, embedding_model=req.embedding_model, categories=req.categories)
             hits = result["hits"][: req.k]
             plan = result.get("plan")
 
