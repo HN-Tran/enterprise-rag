@@ -296,21 +296,31 @@ def _build_insufficient_response(
     return result
 
 
-# Streaming support - concise plain text output
+# Streaming support - plain text output with same logic as JSON version
 _STREAM_SYSTEM = """\
 Du bist ein präziser Frage-Antwort-Assistent.
 
 ANTWORTLÄNGE:
 - Wertfragen (Zahlen, Namen, Daten, Ja/Nein): Kurz und knapp, nur der Wert mit Quelle.
+  Beispiel: "Der Umsatz 2024 beträgt 1,2 Mio. EUR [1]."
 - Erklärungsfragen (Warum, Wie, Was bedeutet): Ausführlich und korrekt erklären.
-- Viele Werte/Argumente: Verweise auf die Quelle, wenn nicht alles in den Text passt.
+  Beispiel: "Das Verfahren funktioniert wie folgt: ... [1]. Dabei ist zu beachten, dass ... [2]."
+- Viele Werte/Argumente: Wenn die Antwort viele Einzelwerte oder Argumente enthält, \
+die nicht alle im Text passen, verweise auf die Quelle: "Details siehe [1], Seite 12-14."
 
 REGELN:
 1. Antworte in der GLEICHEN SPRACHE wie die Frage (Deutsch → Deutsch)
 2. Verwende Quellenverweise [1], [2] im Text
 3. Gib NUR die Antwort zurück, keine Einleitungen oder Erklärungen
-4. Wenn die Quellen KEINE sichere Antwort ermöglichen: \
+4. Wenn die Quellen KEINE klare, sichere Antwort ermöglichen: \
 "Nicht genügend belastbare Belege im Korpus gefunden." Lieber keine Antwort als eine unsichere.
+
+Konfidenz-Bewertung (für deine interne Einschätzung):
+- high: 3+ starke Belege, klare Übereinstimmung
+- medium: 2 Belege oder teilweise Übereinstimmung
+- low: Schwache Belege oder Unsicherheit → dann lieber keine Antwort geben
+
+Bei nur einem Beleg: Antworte trotzdem, aber sei vorsichtig mit Aussagen.
 """
 
 

@@ -33,11 +33,11 @@ app = FastAPI(
     version="0.2.0",
 )
 
-# CORS middleware for chatbot widget
+# CORS middleware for frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -57,11 +57,13 @@ class ChatMessage(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
     query: str
     k: int = Field(default=8, description="Number of sources to retrieve")
     history: list[ChatMessage] | None = Field(default=None, description="Previous chat messages for context")
-    include_archived: bool = Field(default=False, description="Include archived document versions in search")
-    embedding_model: str | None = Field(default=None, description="Embedding model: 'nomic' (fast) or 'qwen' (precise). Default: server setting")
+    include_archived: bool = Field(default=False, alias="includeArchived", description="Include archived document versions in search")
+    embedding_model: str | None = Field(default=None, alias="embeddingModel", description="Embedding model: 'nomic' (fast) or 'qwen' (precise). Default: server setting")
     categories: list[str] | None = Field(default=None, description="Filter by document categories (e.g. ['Atwork'])")
 
 
@@ -228,7 +230,7 @@ def ingest_status(job_id: str) -> dict:
 
 @app.post("/search", response_model=SearchResponse)
 def search(req: SearchRequest) -> SearchResponse:
-    result = retrieve(req.query, include_archived=req.include_archived, categories=req.categories)
+    result = retrieve(req.query, include_archived=req.include_archived, embedding_model=req.embedding_model, categories=req.categories)
     hits = result["hits"][: req.k]
     plan = result.get("plan")
 
