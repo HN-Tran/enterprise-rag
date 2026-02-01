@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +13,7 @@ from enterprise_rag.log import setup_logging
 from enterprise_rag.ingestion.ingest import ingest_path
 from enterprise_rag.ingestion.crawler import crawl_and_ingest, preview_links
 from enterprise_rag.retrieval.hybrid import retrieve
-from enterprise_rag.db import get_conn, init_pool, close_pool
+from enterprise_rag.db import get_conn, init_pool, close_pool, execute
 from enterprise_rag.cache import init_cache, close_cache, is_cache_available, get_cache_stats
 from enterprise_rag.telemetry import setup_telemetry, shutdown_telemetry
 from enterprise_rag.tasks import init_queues
@@ -399,41 +397,27 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
     )
 
 
-# Feedback file path - configure via environment or change here
-FEEDBACK_FILE = Path(settings.DATA_DIR if hasattr(settings, 'DATA_DIR') else ".") / "feedback.jsonl"
-
-
 @app.post("/feedback")
 def submit_feedback(req: FeedbackRequest):
-    """Save user feedback (thumbs up/down) to a file."""
-    entry = {
-        "timestamp": datetime.now().isoformat(),
-        "query": req.query,
-        "answer": req.answer,
-        "feedback": req.feedback,
-    }
-
-    # Include comment if provided
-    if req.comment:
-        entry["comment"] = req.comment
-
-    # Include chat history if provided
-    if req.history:
-        entry["history"] = req.history
-
-    # Include sources, category, embedding model, and settings if provided
-    if req.sources:
-        entry["sources"] = req.sources
-    if req.category:
-        entry["category"] = req.category
-    if req.embedding_model:
-        entry["embedding_model"] = req.embedding_model
-    if req.settings:
-        entry["settings"] = req.settings
-
-    with open(FEEDBACK_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-
+    """Save user feedback (thumbs up/down) to database."""
+    execute(
+        """
+        INSERT INTO feedback (query, answer, rating, comment, category, embedding_model, sources, history, settings)
+        VALUES (%(query)s, %(answer)s, %(rating)s, %(comment)s, %(category)s, %(embedding_model)s,
+                %(sources)s::jsonb, %(history)s::jsonb, %(settings)s::jsonb)
+        """,
+        {
+            "query": req.query,
+            "answer": req.answer,
+            "rating": req.feedback,
+            "comment": req.comment,
+            "category": req.category,
+            "embedding_model": req.embedding_model,
+            "sources": json.dumps(req.sources) if req.sources else None,
+            "history": json.dumps(req.history) if req.history else None,
+            "settings": json.dumps(req.settings) if req.settings else None,
+        },
+    )
     return {"status": "ok"}
 
 

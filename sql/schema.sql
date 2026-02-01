@@ -193,3 +193,23 @@ CREATE TABLE IF NOT EXISTS version_overlap_log (
 
 CREATE INDEX IF NOT EXISTS idx_version_overlap_new_doc ON version_overlap_log(new_doc_id);
 CREATE INDEX IF NOT EXISTS idx_version_overlap_old_doc ON version_overlap_log(old_doc_id);
+
+
+-- ---------- feedback ----------
+-- User feedback on search results (thumbs up/down)
+CREATE TABLE IF NOT EXISTS feedback (
+    feedback_id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    query TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    rating VARCHAR(10) NOT NULL,  -- 'up' or 'down'
+    comment TEXT,
+    category VARCHAR(100),
+    embedding_model VARCHAR(50),
+    sources JSONB,
+    history JSONB,
+    settings JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feedback_rating ON feedback(rating);
