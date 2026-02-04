@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Generator, Iterable, List
 
 import requests
@@ -118,7 +119,9 @@ def chat_json(
         payload["options"]["num_predict"] = max_tokens
     r = requests.post(url, json=payload, headers=_auth_headers(settings.LLM_API_KEY), timeout=timeout_s)
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    content = r.json()["choices"][0]["message"]["content"]
+    # Strip <think>...</think> blocks from reasoning models before JSON parsing
+    return re.sub(r"<think>[\s\S]*?</think>\s*", "", content)
 
 
 def chat_stream(
