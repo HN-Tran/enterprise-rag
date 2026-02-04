@@ -116,14 +116,14 @@ def retrieve(
         include_archived = settings.INCLUDE_ARCHIVED_BY_DEFAULT
 
     t0 = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=len(rewrites) * 2) as executor:
-        # Submit all BM25 and vector searches in parallel
+    with ThreadPoolExecutor(max_workers=len(rewrites) + 1) as executor:
+        # BM25: single short keyword query (bm25_q from query planner)
         bm25_futures = {
             executor.submit(
-                bm25_candidates, rq, cats, settings.CANDIDATES_BM25, include_archived
-            ): ("bm25", rq)
-            for rq in rewrites
+                bm25_candidates, bm25_q, cats, settings.CANDIDATES_BM25, include_archived
+            ): ("bm25", bm25_q)
         }
+        # Vector: multiple embeddings for broad semantic coverage
         vec_futures = {
             executor.submit(
                 vector_candidates, rq, settings.CANDIDATES_VEC, emb, include_archived, embedding_model, cats or None
