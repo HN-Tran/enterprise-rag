@@ -362,13 +362,47 @@ def extract_xlsx(path: str) -> ExtractedDoc:
     return ExtractedDoc(title=p.stem, source_type="xlsx", uri=str(p.resolve()), pages=pages)
 
 
+def _detect_html_encoding(raw: bytes) -> str:
+    """Detect HTML encoding from BOM, meta charset, or content-type header."""
+    # Check for BOM
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return "utf-8"
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+
+    # Check <meta charset="..."> or <meta http-equiv="Content-Type" content="...charset=...">
+    # Only scan the first 4KB for speed
+    head = raw[:4096].decode("ascii", errors="ignore").lower()
+
+    import re
+
+    # <meta charset="windows-1252">
+    m = re.search(r'<meta[^>]+charset=["\']?([a-z0-9_-]+)', head)
+    if m:
+        return m.group(1)
+
+    # <meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+    m = re.search(r'content=["\'][^"\']*charset=([a-z0-9_-]+)', head)
+    if m:
+        return m.group(1)
+
+    return "utf-8"
+
+
 def extract_html(path: str) -> ExtractedDoc:
     p = Path(path)
-    html = p.read_text(encoding="utf-8", errors="ignore")
+    raw = p.read_bytes()
+    encoding = _detect_html_encoding(raw)
+    html = raw.decode(encoding, errors="replace")
+
+    # Remove <noframes> fallback content (legacy frameset pages)
+    soup = BeautifulSoup(html, "lxml")
+    for noframes in soup.find_all("noframes"):
+        noframes.decompose()
+    html = str(soup)
 
     extracted = trafilatura.extract(html, include_tables=True) or ""
     if not extracted.strip():
-        soup = BeautifulSoup(html, "lxml")
         extracted = soup.get_text("\n")
 
     # Heuristic segmentation into logical pages
