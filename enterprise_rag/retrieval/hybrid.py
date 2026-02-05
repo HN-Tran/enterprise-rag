@@ -94,8 +94,8 @@ def retrieve(
 
     rewrites: list[str] = plan.get("rewrites", [query])
     bm25_q: str = plan.get("bm25_query", query)
-    # Frontend categories override LLM-inferred ones
-    cats: list[str] = categories if categories else plan.get("categories", [])
+    # Only filter by categories when explicitly provided by the frontend
+    cats: list[str] = categories if categories else []
 
     # Limit rewrites
     rewrites = rewrites[:settings.MAX_QUERY_REWRITES]
