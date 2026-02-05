@@ -321,6 +321,7 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
 
     Returns SSE events:
     - event: sources - contains the source documents
+    - event: thinking - contains a reasoning/thinking text fragment
     - event: chunk - contains a text fragment of the answer
     - event: done - signals completion
     - event: error - contains error information
@@ -378,6 +379,8 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
                 event_type = event.get("type", "chunk")
                 if event_type == "sources":
                     yield f"event: sources\ndata: {json.dumps(event['sources'])}\n\n"
+                elif event_type == "thinking":
+                    yield f"event: thinking\ndata: {json.dumps(event['chunk'])}\n\n"
                 elif event_type == "chunk":
                     yield f"event: chunk\ndata: {json.dumps(event['chunk'])}\n\n"
                 elif event_type == "done":

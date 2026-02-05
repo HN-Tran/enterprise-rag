@@ -338,8 +338,6 @@ def stream_answer(
     Yields:
         dict with either 'chunk' (text fragment) or 'sources' (list of sources)
     """
-    from typing import Generator
-
     # Get dynamic limits based on complexity
     limits = get_effective_limits(complexity)
 
@@ -381,7 +379,10 @@ def stream_answer(
         timeout_s=120,
         max_tokens=max_tokens,
     ):
-        yield {"type": "chunk", "chunk": chunk}
+        if chunk["type"] == "reasoning":
+            yield {"type": "thinking", "chunk": chunk["content"]}
+        else:
+            yield {"type": "chunk", "chunk": chunk["content"]}
 
     # Signal completion
     yield {"type": "done"}

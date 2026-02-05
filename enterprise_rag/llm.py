@@ -119,8 +119,9 @@ def chat_json(
         payload["options"]["num_predict"] = max_tokens
     r = requests.post(url, json=payload, headers=_auth_headers(settings.LLM_API_KEY), timeout=timeout_s)
     r.raise_for_status()
-    content = r.json()["choices"][0]["message"]["content"]
+    content = r.json()["choices"][0]["message"]["content"] or ""
     # Strip <think>...</think> blocks from reasoning models before JSON parsing
+    # (fallback for providers that embed thinking in content rather than a separate field)
     return re.sub(r"<think>[\s\S]*?</think>\s*", "", content)
 
 
@@ -130,10 +131,16 @@ def chat_stream(
     temperature: float = 0.1,
     timeout_s: int = 180,
     max_tokens: int | None = None,
-) -> Generator[str, None, None]:
-    """Stream chat completions, yielding text chunks as they arrive.
+) -> Generator[dict[str, str], None, None]:
+    """Stream chat completions, yielding dicts with type and content.
 
     Uses Server-Sent Events (SSE) format from OpenAI-compatible endpoints.
+    Ollama puts reasoning-model thinking in ``delta.reasoning`` rather than
+    ``<think>`` tags, so we capture both fields.
+
+    Yields:
+        ``{"type": "reasoning", "content": "..."}`` for thinking tokens, or
+        ``{"type": "content", "content": "..."}`` for answer tokens.
     """
     url = settings.LLM_BASE_URL.rstrip("/") + "/chat/completions"
     payload = {
@@ -172,9 +179,13 @@ def chat_stream(
             try:
                 chunk = json.loads(data)
                 delta = chunk.get("choices", [{}])[0].get("delta", {})
+                # Ollama reasoning models use a separate "reasoning" field
+                reasoning = delta.get("reasoning", "")
+                if reasoning:
+                    yield {"type": "reasoning", "content": reasoning}
                 content = delta.get("content", "")
                 if content:
-                    yield content
+                    yield {"type": "content", "content": content}
             except json.JSONDecodeError:
                 continue
 
