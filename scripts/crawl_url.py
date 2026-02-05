@@ -13,6 +13,7 @@ from enterprise_rag.ingestion.crawler import (
     preview_links,
     preview_links_recursive,
 )
+from enterprise_rag.ingestion.versioning import mark_unseen_orphaned
 
 
 def _handle_recursive_dry_run(url: str, args: argparse.Namespace) -> int:
@@ -65,12 +66,18 @@ def _handle_recursive_dry_run(url: str, args: argparse.Namespace) -> int:
     return len(doc_links)
 
 
-def _handle_recursive_ingest(url: str, args: argparse.Namespace) -> tuple[int, int, int, int]:
-    """Run recursive crawl+ingest and print progress. Returns (ingested, skipped, failed, orphaned)."""
+def _handle_recursive_ingest(
+    url: str, args: argparse.Namespace,
+) -> tuple[int, int, int, int, list[str]]:
+    """Run recursive crawl+ingest and print progress.
+
+    Returns (ingested, skipped, failed, orphaned, seen_doc_ids).
+    """
     total_ingested = 0
     total_skipped = 0
     total_failed = 0
     total_orphaned = 0
+    seen_doc_ids: list[str] = []
 
     for event in crawl_and_ingest_recursive(
         url,
@@ -174,6 +181,10 @@ def _handle_recursive_ingest(url: str, args: argparse.Namespace) -> tuple[int, i
             total_failed = len(failed)
             total_orphaned = orphaned
 
+            for item in ingested:
+                if item.get("doc_id"):
+                    seen_doc_ids.append(item["doc_id"])
+
             print(f"\nSummary for {url}:")
             print(f"  Pages visited: {pages_visited}")
             print(f"  Ingested: {total_ingested}")
@@ -183,7 +194,7 @@ def _handle_recursive_ingest(url: str, args: argparse.Namespace) -> tuple[int, i
             if total_orphaned > 0:
                 print(f"  Orphaned: {total_orphaned}")
 
-    return total_ingested, total_skipped, total_failed, total_orphaned
+    return total_ingested, total_skipped, total_failed, total_orphaned, seen_doc_ids
 
 
 def _handle_pattern_dry_run(args: argparse.Namespace) -> int:
@@ -251,15 +262,16 @@ def _handle_pattern_dry_run(args: argparse.Namespace) -> int:
     return total_hits
 
 
-def _handle_pattern_ingest(args: argparse.Namespace) -> tuple[int, int, int, int]:
+def _handle_pattern_ingest(args: argparse.Namespace) -> tuple[int, int, int, int, list[str]]:
     """Run pattern crawl+ingest and print progress.
 
-    Returns (ingested, skipped, failed, orphaned).
+    Returns (ingested, skipped, failed, orphaned, seen_doc_ids).
     """
     total_ingested = 0
     total_skipped = 0
     total_failed = 0
     total_orphaned = 0
+    seen_doc_ids: list[str] = []
 
     for event in crawl_and_ingest_pattern(
         pattern_url=args.pattern,
@@ -359,6 +371,10 @@ def _handle_pattern_ingest(args: argparse.Namespace) -> tuple[int, int, int, int
             total_failed = len(failed)
             total_orphaned = orphaned
 
+            for item in ingested:
+                if item.get("doc_id"):
+                    seen_doc_ids.append(item["doc_id"])
+
             print("\nSummary:")
             print(f"  Hits:     {event.get('total_hits', 0)}")
             print(f"  Misses:   {event.get('total_misses', 0)}")
@@ -369,7 +385,7 @@ def _handle_pattern_ingest(args: argparse.Namespace) -> tuple[int, int, int, int
             if total_orphaned > 0:
                 print(f"  Orphaned: {total_orphaned}")
 
-    return total_ingested, total_skipped, total_failed, total_orphaned
+    return total_ingested, total_skipped, total_failed, total_orphaned, seen_doc_ids
 
 
 def main() -> None:
@@ -454,6 +470,12 @@ def main() -> None:
         default=10,
         help="Consecutive misses before stopping pattern crawl (default: 10)",
     )
+    ap.add_argument(
+        "--mark-unseen",
+        action="store_true",
+        help="After crawling, mark documents without a download_url as orphaned "
+        "if not matched by SHA256 during this run",
+    )
 
     args = ap.parse_args()
 
@@ -483,7 +505,14 @@ def main() -> None:
             total_hits = _handle_pattern_dry_run(args)
             print(f"\nTotal hits discovered: {total_hits}")
         else:
-            ing, skip, fail, orph = _handle_pattern_ingest(args)
+            ing, skip, fail, orph, seen = _handle_pattern_ingest(args)
+            if args.mark_unseen:
+                unseen_count = mark_unseen_orphaned(seen)
+                if unseen_count > 0:
+                    print(
+                        f"\n  Marked {unseen_count} unmatched document(s)"
+                        " as orphaned (no download_url)"
+                    )
             if fail > 0:
                 sys.exit(1)
 
@@ -514,6 +543,7 @@ def main() -> None:
     total_failed = 0
     total_orphaned = 0
     total_discovered = 0  # For dry-run mode
+    all_seen_doc_ids: list[str] = []  # For --mark-unseen
 
     for url in urls:
         print(f"\n{'=' * 60}")
@@ -527,11 +557,12 @@ def main() -> None:
             if args.dry_run:
                 total_discovered += _handle_recursive_dry_run(url, args)
             else:
-                ing, skip, fail, orph = _handle_recursive_ingest(url, args)
+                ing, skip, fail, orph, seen = _handle_recursive_ingest(url, args)
                 total_ingested += ing
                 total_skipped += skip
                 total_failed += fail
                 total_orphaned += orph
+                all_seen_doc_ids.extend(seen)
 
         elif args.dry_run:
             # Original single-page preview mode
@@ -621,6 +652,11 @@ def main() -> None:
                     total_failed += len(failed)
                     total_orphaned += orphaned
 
+                    # Collect seen doc_ids for --mark-unseen
+                    for item in ingested:
+                        if item.get("doc_id"):
+                            all_seen_doc_ids.append(item["doc_id"])
+
                     print(f"\nSummary for {url}:")
                     print(f"  Ingested: {len(actually_ingested)}")
                     if skipped:
@@ -628,6 +664,16 @@ def main() -> None:
                     print(f"  Failed:   {len(failed)}")
                     if orphaned > 0:
                         print(f"  Orphaned: {orphaned}")
+
+    # --mark-unseen: orphan documents without download_url that weren't matched
+    if args.mark_unseen and not args.dry_run:
+        unseen_count = mark_unseen_orphaned(all_seen_doc_ids)
+        if unseen_count > 0:
+            print(
+                f"\n  Marked {unseen_count} unmatched document(s)"
+                " as orphaned (no download_url)"
+            )
+        total_orphaned += unseen_count
 
     # Final summary for multiple URLs
     if len(urls) > 1:

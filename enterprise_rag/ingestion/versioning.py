@@ -179,6 +179,50 @@ def mark_orphaned(source_url: str, seen_doc_ids: list[str]) -> int:
     return count
 
 
+def mark_unseen_orphaned(seen_doc_ids: list[str]) -> int:
+    """Mark documents without a download_url as orphaned if not seen in this crawl.
+
+    Targets folder-ingested documents that the crawler couldn't match by
+    SHA256.  Documents that already have a ``download_url`` (i.e. were
+    previously confirmed online) are left untouched.
+
+    Args:
+        seen_doc_ids: Document IDs matched during this crawl run.
+
+    Returns:
+        Number of documents marked as orphaned.
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if seen_doc_ids:
+                cur.execute(
+                    """
+                    UPDATE documents
+                    SET is_current = FALSE,
+                        archived_at = now(),
+                        archive_reason = 'unseen'
+                    WHERE is_current = TRUE
+                      AND download_url IS NULL
+                      AND doc_id != ALL(%(seen)s)
+                    """,
+                    {"seen": seen_doc_ids},
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE documents
+                    SET is_current = FALSE,
+                        archived_at = now(),
+                        archive_reason = 'unseen'
+                    WHERE is_current = TRUE
+                      AND download_url IS NULL
+                    """,
+                )
+            count = cur.rowcount
+        conn.commit()
+    return count
+
+
 def check_url_replacement(download_url: str, new_sha256: str) -> str | None:
     """Check if download_url exists with a different hash (file was replaced).
 
