@@ -221,6 +221,9 @@ class Settings(BaseSettings):
     CRAWLER_CA_BUNDLE: str | None = None  # Custom CA bundle path (e.g., /etc/ssl/certs/ca-certificates.crt)
     CRAWLER_PROXY: str | None = None  # HTTP/HTTPS proxy URL (e.g., http://proxy.corp:8080)
     CRAWLER_CATEGORY_MAP: str = ""  # URL param to category map (e.g., "A:Atwork,B:Beta,C:Corp")
+    CRAWLER_MAX_PAGES: int = 50  # Safety cap on pages per recursive crawl
+    CRAWLER_EXTRA_DOMAINS: str = ""  # Comma-separated additional allowed domains
+    CRAWLER_PAGE_DELAY: float = 0.5  # Politeness delay between page fetches (seconds)
 
 
 settings = Settings()

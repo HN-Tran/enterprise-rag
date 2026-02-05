@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import tempfile
+import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
@@ -59,6 +62,31 @@ class IngestResult:
     title: str | None
     error: str | None = None
     is_current: bool = True
+
+
+@dataclass
+class DiscoveredPage:
+    """An HTML page link discovered during recursive crawling."""
+
+    url: str
+    anchor_text: str | None
+    source_url: str
+    depth: int
+
+
+@dataclass
+class FullCrawlResult:
+    """Result of crawling a page for both document and page links."""
+
+    source_url: str
+    doc_links: list[DiscoveredLink]
+    page_links: list[DiscoveredPage]
+    html_content: bytes | None = None
+    page_title: str | None = None
+    error: str | None = None
+
+
+log = logging.getLogger(__name__)
 
 
 def _get_cached_http_headers(download_url: str) -> tuple[str | None, str | None]:
@@ -635,4 +663,917 @@ def preview_links(url: str) -> dict[str, Any]:
             }
             for link in result.links
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Recursive page crawling
+# ---------------------------------------------------------------------------
+
+_DOC_EXTENSIONS = {
+    ".pdf", ".docx", ".xlsx", ".xls", ".doc",
+    ".pptx", ".ppt", ".odt", ".ods", ".odp",
+    ".zip", ".rar", ".7z", ".tar", ".gz",
+    ".csv", ".tsv", ".json", ".xml",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg",
+    ".mp3", ".mp4", ".avi", ".mov", ".wav",
+}
+
+
+def _strip_fragment(url: str) -> str:
+    """Remove fragment (#...) from a URL for deduplication."""
+    parsed = urlparse(url)
+    return parsed._replace(fragment="").geturl()
+
+
+def _build_allowed_domains(seed_url: str) -> set[str]:
+    """Build the set of allowed domains from the seed URL + config."""
+    domains: set[str] = set()
+
+    seed_host = urlparse(seed_url).hostname
+    if seed_host:
+        domains.add(seed_host.lower())
+
+    extra = settings.CRAWLER_EXTRA_DOMAINS.strip()
+    if extra:
+        for d in extra.split(","):
+            d = d.strip().lower()
+            if d:
+                domains.add(d)
+
+    return domains
+
+
+def _extract_page_links_from_soup(
+    soup: BeautifulSoup,
+    base_url: str,
+    source_url: str,
+    allowed_domains: set[str],
+    seen_urls: set[str],
+    depth: int,
+) -> list[DiscoveredPage]:
+    """Extract HTML page links (non-document) from a BeautifulSoup object.
+
+    Complements ``_extract_links_from_soup`` which finds document links.
+    This function finds links to other HTML pages that should be followed
+    during a recursive crawl.
+    """
+    pages: list[DiscoveredPage] = []
+    allowed_ext = _get_allowed_extensions()
+
+    for anchor in soup.find_all("a", href=True):
+        href = anchor["href"].strip()
+
+        # Skip non-HTTP schemes
+        if href.lower().startswith("mailto:"):
+            continue
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", href) and not href.lower().startswith(
+            ("http://", "https://")
+        ):
+            continue
+
+        # Skip fragment-only links
+        if href.startswith("#"):
+            continue
+
+        full_url = urljoin(base_url, href)
+        clean_url = _strip_fragment(full_url)
+
+        # Skip if already seen
+        if clean_url in seen_urls:
+            continue
+
+        # Check domain
+        parsed = urlparse(clean_url)
+        host = (parsed.hostname or "").lower()
+        if host not in allowed_domains:
+            continue
+
+        # Skip URLs that look like document downloads
+        path_lower = parsed.path.lower()
+        if "." in path_lower.rsplit("/", 1)[-1]:
+            ext = "." + path_lower.rsplit(".", 1)[-1]
+            if ext in allowed_ext or ext in _DOC_EXTENSIONS:
+                continue
+
+        seen_urls.add(clean_url)
+        anchor_text = _clean_anchor_text(anchor.get_text(strip=True))
+
+        pages.append(
+            DiscoveredPage(
+                url=clean_url,
+                anchor_text=anchor_text,
+                source_url=source_url,
+                depth=depth + 1,
+            )
+        )
+
+    return pages
+
+
+def _save_html_to_temp(html_bytes: bytes, url: str, temp_dir: Path) -> Path:
+    """Save fetched HTML to a temp .html file for ingest_path().
+
+    Uses a URL-based hash for the filename to ensure uniqueness.
+    """
+    url_hash = hashlib.sha256(url.encode()).hexdigest()[:12]
+    filename = f"{url_hash}.html"
+    path = temp_dir / filename
+    path.write_bytes(html_bytes)
+    return path
+
+
+def crawl_page_full(
+    url: str,
+    allowed_domains: set[str],
+    seen_urls: set[str],
+    depth: int,
+    follow_iframes: bool = True,
+) -> FullCrawlResult:
+    """Crawl a page and return both document links and page links.
+
+    Like ``crawl_page()`` but also discovers HTML page links for recursive
+    crawling and returns the raw HTML content for ingestion.
+
+    Args:
+        url: URL of the page to crawl
+        allowed_domains: Set of hostnames we are allowed to follow
+        seen_urls: Shared set of already-visited URLs (mutated in-place)
+        depth: Current BFS depth (used for discovered page link depths)
+        follow_iframes: If True, also fetch and parse iframe contents
+
+    Returns:
+        FullCrawlResult with doc links, page links, and HTML content
+    """
+    try:
+        client_kwargs = _get_http_client_kwargs()
+        with httpx.Client(**client_kwargs) as client:
+            response = client.get(url)
+            response.raise_for_status()
+
+            html_content = response.content
+            soup = BeautifulSoup(html_content, "html.parser")
+
+            # Extract page title
+            title_tag = soup.find("title")
+            page_title = title_tag.get_text(strip=True) if title_tag else None
+
+            # Extract document links (reuse existing helper)
+            doc_links = _extract_links_from_soup(soup, url, url, seen_urls)
+
+            # Extract page links for recursive following
+            page_links = _extract_page_links_from_soup(
+                soup, url, url, allowed_domains, seen_urls, depth
+            )
+
+            # Also check iframes for document links
+            if follow_iframes:
+                for iframe in soup.find_all("iframe", src=True):
+                    iframe_src = iframe["src"]
+                    iframe_url = urljoin(url, iframe_src)
+                    try:
+                        iframe_resp = client.get(iframe_url)
+                        iframe_resp.raise_for_status()
+                        iframe_soup = BeautifulSoup(iframe_resp.content, "html.parser")
+                        iframe_doc_links = _extract_links_from_soup(
+                            iframe_soup, iframe_url, url, seen_urls
+                        )
+                        doc_links.extend(iframe_doc_links)
+                        iframe_page_links = _extract_page_links_from_soup(
+                            iframe_soup, iframe_url, url, allowed_domains, seen_urls, depth
+                        )
+                        page_links.extend(iframe_page_links)
+                    except Exception:
+                        pass
+
+            return FullCrawlResult(
+                source_url=url,
+                doc_links=doc_links,
+                page_links=page_links,
+                html_content=html_content,
+                page_title=page_title,
+            )
+
+    except httpx.TimeoutException:
+        return FullCrawlResult(
+            source_url=url, doc_links=[], page_links=[], error="Request timeout"
+        )
+    except httpx.HTTPStatusError as e:
+        return FullCrawlResult(
+            source_url=url, doc_links=[], page_links=[], error=f"HTTP {e.response.status_code}"
+        )
+    except Exception as e:
+        return FullCrawlResult(
+            source_url=url, doc_links=[], page_links=[], error=str(e)
+        )
+
+
+def crawl_and_ingest_recursive(
+    seed_url: str,
+    max_depth: int,
+    download_dir: Path | None = None,
+    extra_domains: str | None = None,
+    max_pages: int | None = None,
+) -> Generator[dict[str, Any], None, None]:
+    """Recursively crawl pages (BFS), ingesting HTML content and document files.
+
+    Follows HTML page links up to ``max_depth`` levels. Each discovered page
+    is itself crawled for document links and further page links.
+
+    Args:
+        seed_url: Starting URL
+        max_depth: Maximum BFS depth (1 = seed + its direct links)
+        download_dir: Directory for downloads (uses temp dir if None)
+        extra_domains: Comma-separated extra allowed domains (overrides config)
+        max_pages: Safety cap on total pages to visit (overrides config)
+
+    Yields:
+        Progress events compatible with the CLI display loop
+    """
+    if max_pages is None:
+        max_pages = settings.CRAWLER_MAX_PAGES
+
+    # Build allowed domains
+    allowed_domains = _build_allowed_domains(seed_url)
+    if extra_domains:
+        for d in extra_domains.split(","):
+            d = d.strip().lower()
+            if d:
+                allowed_domains.add(d)
+
+    # BFS state
+    seen_urls: set[str] = set()
+    clean_seed = _strip_fragment(seed_url)
+    seen_urls.add(clean_seed)
+
+    queue: deque[DiscoveredPage] = deque()
+    queue.append(DiscoveredPage(url=clean_seed, anchor_text=None, source_url="", depth=0))
+
+    pages_visited = 0
+
+    # Setup download directory
+    if download_dir:
+        download_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir_obj = None
+    else:
+        temp_dir_obj = tempfile.TemporaryDirectory()
+        download_dir = Path(temp_dir_obj.name)
+
+    try:
+        all_ingested: list[dict[str, Any]] = []
+        all_failed: list[dict[str, Any]] = []
+        all_seen_doc_ids: list[str] = []
+
+        while queue and pages_visited < max_pages:
+            page = queue.popleft()
+            pages_visited += 1
+
+            yield {
+                "type": "page_start",
+                "url": page.url,
+                "depth": page.depth,
+                "page_num": pages_visited,
+                "max_pages": max_pages,
+                "queue_size": len(queue),
+            }
+
+            # Politeness delay (skip for the very first page)
+            if pages_visited > 1:
+                time.sleep(settings.CRAWLER_PAGE_DELAY)
+
+            # Crawl the page
+            result = crawl_page_full(
+                page.url, allowed_domains, seen_urls, page.depth
+            )
+
+            if result.error:
+                yield {"type": "page_error", "url": page.url, "error": result.error}
+                continue
+
+            # Extract category from source URL
+            source_category = extract_category_from_url(page.url)
+
+            yield {
+                "type": "page_done",
+                "url": page.url,
+                "depth": page.depth,
+                "doc_link_count": len(result.doc_links),
+                "page_link_count": len(result.page_links),
+                "page_title": result.page_title,
+                "category": source_category,
+            }
+
+            # Ingest the HTML page content itself
+            if result.html_content:
+                try:
+                    html_path = _save_html_to_temp(result.html_content, page.url, download_dir)
+                    ingest_result = ingest_path(
+                        str(html_path),
+                        title_override=result.page_title,
+                        source_url=page.source_url or page.url,
+                        download_url=page.url,
+                        category=source_category,
+                    )
+
+                    doc_id = ingest_result["doc_id"]
+                    all_seen_doc_ids.append(doc_id)
+                    status = ingest_result.get("status")
+
+                    yield {
+                        "type": "page_ingest_done",
+                        "url": page.url,
+                        "doc_id": doc_id,
+                        "title": ingest_result.get("title"),
+                        "status": status,
+                        "category": source_category,
+                    }
+
+                    all_ingested.append({
+                        "url": page.url,
+                        "doc_id": doc_id,
+                        "title": ingest_result.get("title"),
+                        "pages": ingest_result.get("pages"),
+                        "category": source_category,
+                        "status": status,
+                        "kind": "page",
+                    })
+
+                except Exception as e:
+                    log.warning("Failed to ingest HTML for %s: %s", page.url, e)
+                    yield {"type": "page_ingest_error", "url": page.url, "error": str(e)}
+
+            # Download and ingest document files
+            for i, link in enumerate(result.doc_links, 1):
+                yield {
+                    "type": "download_start",
+                    "url": link.url,
+                    "index": i,
+                    "total": len(result.doc_links),
+                }
+
+                dl_result = download_file(link, download_dir)
+
+                if dl_result.error:
+                    yield {"type": "download_error", "url": link.url, "error": dl_result.error}
+                    all_failed.append({"url": link.url, "error": dl_result.error})
+                    continue
+
+                category = extract_category_from_url(link.source_url)
+
+                # Handle 304 Not Modified
+                if dl_result.skipped_not_modified:
+                    yield {"type": "not_modified", "url": link.url}
+                    try:
+                        with get_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    """
+                                    SELECT doc_id FROM documents
+                                    WHERE download_url = %(url)s AND is_current = TRUE
+                                    LIMIT 1
+                                    """,
+                                    {"url": link.url},
+                                )
+                                row = cur.fetchone()
+                                if row:
+                                    doc_id = row["doc_id"]
+                                    all_seen_doc_ids.append(doc_id)
+                                    if category:
+                                        cur.execute(
+                                            """
+                                            UPDATE documents
+                                            SET last_seen_at = now(),
+                                                categories = CASE
+                                                    WHEN categories IS NULL THEN ARRAY[%(cat)s]
+                                                    WHEN %(cat)s = ANY(categories) THEN categories
+                                                    ELSE categories || ARRAY[%(cat)s]
+                                                END
+                                            WHERE doc_id = %(doc)s
+                                            """,
+                                            {"doc": doc_id, "cat": category},
+                                        )
+                                    else:
+                                        cur.execute(
+                                            "UPDATE documents SET last_seen_at = now() WHERE doc_id = %(doc)s",
+                                            {"doc": doc_id},
+                                        )
+                            conn.commit()
+
+                            all_ingested.append({
+                                "url": link.url,
+                                "doc_id": doc_id,
+                                "status": "not_modified",
+                                "category": category,
+                                "kind": "doc",
+                            })
+                    except Exception as e:
+                        all_failed.append({"url": link.url, "error": f"304 update failed: {e}"})
+                    continue
+
+                yield {"type": "download_done", "url": link.url}
+
+                # Ingest the document file
+                yield {"type": "ingest_start", "url": link.url}
+
+                try:
+                    ingest_result = ingest_path(
+                        str(dl_result.local_path),
+                        title_override=link.anchor_text,
+                        source_url=link.source_url,
+                        download_url=link.url,
+                        category=category,
+                    )
+
+                    if dl_result.http_etag or dl_result.http_last_modified:
+                        _store_http_headers(
+                            link.url, dl_result.http_etag, dl_result.http_last_modified
+                        )
+
+                    doc_id = ingest_result["doc_id"]
+                    all_seen_doc_ids.append(doc_id)
+                    status = ingest_result.get("status")
+
+                    yield {
+                        "type": "ingest_done",
+                        "url": link.url,
+                        "doc_id": doc_id,
+                        "title": ingest_result.get("title"),
+                        "is_current": ingest_result.get("is_current", True),
+                        "category": category,
+                        "status": status,
+                    }
+
+                    all_ingested.append({
+                        "url": link.url,
+                        "doc_id": doc_id,
+                        "title": ingest_result.get("title"),
+                        "pages": ingest_result.get("pages"),
+                        "is_current": ingest_result.get("is_current", True),
+                        "category": category,
+                        "status": status,
+                        "kind": "doc",
+                    })
+
+                except Exception as e:
+                    yield {"type": "ingest_error", "url": link.url, "error": str(e)}
+                    all_failed.append({"url": link.url, "error": str(e)})
+
+            # Enqueue discovered page links if within depth limit
+            if page.depth < max_depth:
+                for plink in result.page_links:
+                    if plink.depth <= max_depth:
+                        queue.append(plink)
+
+                if result.page_links:
+                    yield {
+                        "type": "pages_enqueued",
+                        "count": len(result.page_links),
+                        "queue_size": len(queue),
+                    }
+
+        if queue:
+            yield {
+                "type": "max_pages_reached",
+                "visited": pages_visited,
+                "remaining_in_queue": len(queue),
+            }
+
+        # Update last_seen_at for all ingested documents
+        if all_seen_doc_ids:
+            mark_crawl_seen(all_seen_doc_ids)
+
+        # Mark orphaned documents
+        orphaned_count = mark_orphaned(seed_url, all_seen_doc_ids)
+        if orphaned_count > 0:
+            yield {"type": "orphaned", "count": orphaned_count, "source_url": seed_url}
+
+        yield {
+            "type": "done",
+            "ingested": all_ingested,
+            "failed": all_failed,
+            "pages_visited": pages_visited,
+            "orphaned_count": orphaned_count,
+        }
+
+    finally:
+        if temp_dir_obj:
+            temp_dir_obj.cleanup()
+
+
+def crawl_and_ingest_pattern(
+    pattern_url: str,
+    start: int,
+    end: int,
+    pad_width: int,
+    not_found_text: str,
+    max_consecutive_misses: int = 10,
+    download_dir: Path | None = None,
+    category: str | None = None,
+) -> Generator[dict[str, Any], None, None]:
+    """Crawl pages by enumerating a numeric placeholder in a URL pattern.
+
+    Iterates ``start`` to ``end``, replacing ``{}`` in *pattern_url* with
+    zero-padded numbers.  Each page is fetched; if the HTTP status is non-200
+    **or** the response body contains *not_found_text*, the page counts as a
+    miss.  After *max_consecutive_misses* misses in a row the crawl stops
+    early.
+
+    Valid pages are saved as HTML and ingested, and any document links
+    discovered on the page are downloaded and ingested as well.
+
+    Args:
+        pattern_url: URL with ``{}`` placeholder (e.g. ``"https://x.com/p?id={}"``).
+        start: First number to try.
+        end: Last number to try (inclusive).
+        pad_width: Zero-padding width (4 → ``0001``).
+        not_found_text: Substring in the response body that signals "not found".
+        max_consecutive_misses: Stop after this many consecutive misses.
+        download_dir: Directory for downloads (uses temp dir if ``None``).
+        category: Optional fixed category for all ingested items.
+
+    Yields:
+        Progress event dicts (see ``crawl_and_ingest`` for the event pattern).
+    """
+
+    yield {
+        "type": "pattern_start",
+        "pattern_url": pattern_url,
+        "start": start,
+        "end": end,
+        "pad_width": pad_width,
+        "not_found_text": not_found_text,
+        "max_consecutive_misses": max_consecutive_misses,
+    }
+
+    # Setup download directory
+    if download_dir:
+        download_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir_obj = None
+    else:
+        temp_dir_obj = tempfile.TemporaryDirectory()
+        download_dir = Path(temp_dir_obj.name)
+
+    try:
+        all_ingested: list[dict[str, Any]] = []
+        all_failed: list[dict[str, Any]] = []
+        all_seen_doc_ids: list[str] = []
+        consecutive_misses = 0
+        total_hits = 0
+        total_misses = 0
+
+        client_kwargs = _get_http_client_kwargs()
+
+        for num in range(start, end + 1):
+            pid = str(num).zfill(pad_width)
+            url = pattern_url.replace("{}", pid)
+
+            # Politeness delay (skip for the very first request)
+            if num > start:
+                time.sleep(settings.CRAWLER_PAGE_DELAY)
+
+            # -- Fetch -------------------------------------------------------
+            try:
+                with httpx.Client(**client_kwargs) as client:
+                    response = client.get(url)
+
+                    # Non-200 → miss
+                    if response.status_code != 200:
+                        consecutive_misses += 1
+                        total_misses += 1
+                        yield {
+                            "type": "pattern_miss",
+                            "url": url,
+                            "num": num,
+                            "reason": f"HTTP {response.status_code}",
+                            "consecutive_misses": consecutive_misses,
+                        }
+                        if consecutive_misses >= max_consecutive_misses:
+                            yield {
+                                "type": "pattern_gap_stop",
+                                "num": num,
+                                "consecutive_misses": consecutive_misses,
+                            }
+                            break
+                        continue
+
+                    # Body contains not-found marker → miss
+                    body_text = response.text
+                    if not_found_text in body_text:
+                        consecutive_misses += 1
+                        total_misses += 1
+                        yield {
+                            "type": "pattern_miss",
+                            "url": url,
+                            "num": num,
+                            "reason": "not-found text matched",
+                            "consecutive_misses": consecutive_misses,
+                        }
+                        if consecutive_misses >= max_consecutive_misses:
+                            yield {
+                                "type": "pattern_gap_stop",
+                                "num": num,
+                                "consecutive_misses": consecutive_misses,
+                            }
+                            break
+                        continue
+
+                    # -- Hit! -------------------------------------------------
+                    consecutive_misses = 0
+                    total_hits += 1
+                    html_content = response.content
+
+                    yield {
+                        "type": "pattern_hit",
+                        "url": url,
+                        "num": num,
+                        "total_hits": total_hits,
+                    }
+
+            except Exception as exc:
+                consecutive_misses += 1
+                total_misses += 1
+                yield {
+                    "type": "pattern_miss",
+                    "url": url,
+                    "num": num,
+                    "reason": str(exc),
+                    "consecutive_misses": consecutive_misses,
+                }
+                if consecutive_misses >= max_consecutive_misses:
+                    yield {
+                        "type": "pattern_gap_stop",
+                        "num": num,
+                        "consecutive_misses": consecutive_misses,
+                    }
+                    break
+                continue
+
+            # -- Ingest the HTML page ----------------------------------------
+            page_category = category or extract_category_from_url(url)
+            try:
+                html_path = _save_html_to_temp(html_content, url, download_dir)
+                soup = BeautifulSoup(html_content, "html.parser")
+                title_tag = soup.find("title")
+                page_title = title_tag.get_text(strip=True) if title_tag else None
+
+                ingest_result = ingest_path(
+                    str(html_path),
+                    title_override=page_title,
+                    source_url=pattern_url,
+                    download_url=url,
+                    category=page_category,
+                )
+
+                doc_id = ingest_result["doc_id"]
+                all_seen_doc_ids.append(doc_id)
+                status = ingest_result.get("status")
+
+                yield {
+                    "type": "page_ingest_done",
+                    "url": url,
+                    "doc_id": doc_id,
+                    "title": ingest_result.get("title"),
+                    "status": status,
+                    "category": page_category,
+                }
+
+                all_ingested.append({
+                    "url": url,
+                    "doc_id": doc_id,
+                    "title": ingest_result.get("title"),
+                    "pages": ingest_result.get("pages"),
+                    "category": page_category,
+                    "status": status,
+                    "kind": "page",
+                })
+
+            except Exception as e:
+                log.warning("Failed to ingest HTML for %s: %s", url, e)
+                yield {"type": "page_ingest_error", "url": url, "error": str(e)}
+                all_failed.append({"url": url, "error": str(e), "kind": "page"})
+
+            # -- Download & ingest document links from this page -------------
+            seen_urls: set[str] = set()
+            doc_links = _extract_links_from_soup(soup, url, url, seen_urls)
+
+            for i, link in enumerate(doc_links, 1):
+                yield {
+                    "type": "download_start",
+                    "url": link.url,
+                    "index": i,
+                    "total": len(doc_links),
+                }
+
+                dl_result = download_file(link, download_dir)
+
+                if dl_result.error:
+                    yield {"type": "download_error", "url": link.url, "error": dl_result.error}
+                    all_failed.append({"url": link.url, "error": dl_result.error, "kind": "doc"})
+                    continue
+
+                link_category = page_category or extract_category_from_url(link.source_url)
+
+                if dl_result.skipped_not_modified:
+                    yield {"type": "not_modified", "url": link.url}
+                    try:
+                        with get_conn() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute(
+                                    """
+                                    SELECT doc_id FROM documents
+                                    WHERE download_url = %(url)s AND is_current = TRUE
+                                    LIMIT 1
+                                    """,
+                                    {"url": link.url},
+                                )
+                                row = cur.fetchone()
+                                if row:
+                                    doc_id = row["doc_id"]
+                                    all_seen_doc_ids.append(doc_id)
+                                    if link_category:
+                                        cur.execute(
+                                            """
+                                            UPDATE documents
+                                            SET last_seen_at = now(),
+                                                categories = CASE
+                                                    WHEN categories IS NULL THEN ARRAY[%(cat)s]
+                                                    WHEN %(cat)s = ANY(categories) THEN categories
+                                                    ELSE categories || ARRAY[%(cat)s]
+                                                END
+                                            WHERE doc_id = %(doc)s
+                                            """,
+                                            {"doc": doc_id, "cat": link_category},
+                                        )
+                                    else:
+                                        cur.execute(
+                                            "UPDATE documents SET last_seen_at = now() WHERE doc_id = %(doc)s",
+                                            {"doc": doc_id},
+                                        )
+                            conn.commit()
+
+                            all_ingested.append({
+                                "url": link.url,
+                                "doc_id": doc_id,
+                                "status": "not_modified",
+                                "category": link_category,
+                                "kind": "doc",
+                            })
+                    except Exception as e:
+                        all_failed.append({
+                            "url": link.url,
+                            "error": f"304 update failed: {e}",
+                            "kind": "doc",
+                        })
+                    continue
+
+                yield {"type": "download_done", "url": link.url}
+
+                # Ingest the document file
+                yield {"type": "ingest_start", "url": link.url}
+
+                try:
+                    ingest_result = ingest_path(
+                        str(dl_result.local_path),
+                        title_override=link.anchor_text,
+                        source_url=link.source_url,
+                        download_url=link.url,
+                        category=link_category,
+                    )
+
+                    if dl_result.http_etag or dl_result.http_last_modified:
+                        _store_http_headers(
+                            link.url, dl_result.http_etag, dl_result.http_last_modified
+                        )
+
+                    doc_id = ingest_result["doc_id"]
+                    all_seen_doc_ids.append(doc_id)
+                    status = ingest_result.get("status")
+
+                    yield {
+                        "type": "ingest_done",
+                        "url": link.url,
+                        "doc_id": doc_id,
+                        "title": ingest_result.get("title"),
+                        "is_current": ingest_result.get("is_current", True),
+                        "category": link_category,
+                        "status": status,
+                    }
+
+                    all_ingested.append({
+                        "url": link.url,
+                        "doc_id": doc_id,
+                        "title": ingest_result.get("title"),
+                        "pages": ingest_result.get("pages"),
+                        "is_current": ingest_result.get("is_current", True),
+                        "category": link_category,
+                        "status": status,
+                        "kind": "doc",
+                    })
+
+                except Exception as e:
+                    yield {"type": "ingest_error", "url": link.url, "error": str(e)}
+                    all_failed.append({"url": link.url, "error": str(e), "kind": "doc"})
+
+        # -- Wrap up ---------------------------------------------------------
+        if all_seen_doc_ids:
+            mark_crawl_seen(all_seen_doc_ids)
+
+        orphaned_count = mark_orphaned(pattern_url, all_seen_doc_ids)
+        if orphaned_count > 0:
+            yield {"type": "orphaned", "count": orphaned_count, "source_url": pattern_url}
+
+        yield {
+            "type": "done",
+            "ingested": all_ingested,
+            "failed": all_failed,
+            "total_hits": total_hits,
+            "total_misses": total_misses,
+            "orphaned_count": orphaned_count,
+        }
+
+    finally:
+        if temp_dir_obj:
+            temp_dir_obj.cleanup()
+
+
+def preview_links_recursive(
+    seed_url: str,
+    max_depth: int,
+    max_pages: int | None = None,
+) -> dict[str, Any]:
+    """Dry-run BFS preview of pages and document links that would be crawled.
+
+    Args:
+        seed_url: Starting URL
+        max_depth: Maximum BFS depth
+        max_pages: Safety cap on pages to visit
+
+    Returns:
+        Dict with discovered pages and document links
+    """
+    if max_pages is None:
+        max_pages = settings.CRAWLER_MAX_PAGES
+
+    allowed_domains = _build_allowed_domains(seed_url)
+    seen_urls: set[str] = set()
+    clean_seed = _strip_fragment(seed_url)
+    seen_urls.add(clean_seed)
+
+    queue: deque[DiscoveredPage] = deque()
+    queue.append(DiscoveredPage(url=clean_seed, anchor_text=None, source_url="", depth=0))
+
+    pages_visited = 0
+    all_doc_links: list[dict[str, Any]] = []
+    all_pages: list[dict[str, Any]] = []
+
+    while queue and pages_visited < max_pages:
+        page = queue.popleft()
+        pages_visited += 1
+
+        # Politeness delay (skip for the very first page)
+        if pages_visited > 1:
+            time.sleep(settings.CRAWLER_PAGE_DELAY)
+
+        result = crawl_page_full(page.url, allowed_domains, seen_urls, page.depth)
+
+        if result.error:
+            all_pages.append({
+                "url": page.url,
+                "depth": page.depth,
+                "error": result.error,
+            })
+            continue
+
+        all_pages.append({
+            "url": page.url,
+            "depth": page.depth,
+            "title": result.page_title,
+            "doc_links": len(result.doc_links),
+            "page_links": len(result.page_links),
+        })
+
+        for link in result.doc_links:
+            all_doc_links.append({
+                "url": link.url,
+                "title": link.anchor_text,
+                "extension": link.extension,
+                "found_on": page.url,
+            })
+
+        # Enqueue page links within depth limit
+        if page.depth < max_depth:
+            for plink in result.page_links:
+                if plink.depth <= max_depth:
+                    queue.append(plink)
+
+    category = extract_category_from_url(seed_url)
+
+    return {
+        "url": seed_url,
+        "category": category,
+        "pages_visited": pages_visited,
+        "pages": all_pages,
+        "doc_links": all_doc_links,
+        "truncated": len(queue) > 0,
+        "remaining_in_queue": len(queue),
     }
