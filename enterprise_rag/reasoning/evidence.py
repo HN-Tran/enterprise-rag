@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from typing import Any
 
-from enterprise_rag.config import get_effective_limits, settings
+from enterprise_rag.config import get_effective_limits, get_llm_profile, settings
 from enterprise_rag.llm import chat_json, chat_stream
 from enterprise_rag.models import CitedAnswer, SourceCitation
 
@@ -189,6 +189,7 @@ def extract_and_answer(
     query: str,
     context: dict[str, Any],
     complexity: float = 1.0,
+    llm_model: str | None = None,
 ) -> dict[str, Any]:
     """Extract evidence and generate cited answer.
 
@@ -196,9 +197,13 @@ def extract_and_answer(
         query: User query
         context: Packed context from pack_context()
         complexity: Query complexity score for dynamic sizing (0.5 - 1.5+)
+        llm_model: LLM mode - "instruct", "reasoning", or None (default)
     """
     # Get dynamic limits based on complexity
     limits = get_effective_limits(complexity)
+
+    # Resolve LLM profile
+    profile = get_llm_profile(llm_model)
 
     # Format as plain text to avoid JSON-in-JSON confusion with LLM
     user = _format_context_as_text(query, context, limits) + "\n\nAntworte als JSON."
@@ -212,6 +217,8 @@ def extract_and_answer(
         timeout_s=120,  # Reduced timeout since we cap tokens
         force_json=False,
         max_tokens=max_tokens,
+        model=profile.model,
+        think=profile.think,
     )
 
     # Try to parse JSON
@@ -329,17 +336,28 @@ def stream_answer(
     context: dict[str, Any],
     complexity: float = 1.0,
     history: list[dict] | None = None,
+    llm_model: str | None = None,
 ):
     """Stream the answer generation, yielding text chunks.
 
     For streaming, we use plain text output (not JSON) for better UX.
     Sources are pre-computed from the context.
 
+    Args:
+        query: User query
+        context: Packed context from pack_context()
+        complexity: Query complexity score for dynamic sizing
+        history: Previous chat messages for context
+        llm_model: LLM mode - "instruct", "reasoning", or None (default)
+
     Yields:
         dict with either 'chunk' (text fragment) or 'sources' (list of sources)
     """
     # Get dynamic limits based on complexity
     limits = get_effective_limits(complexity)
+
+    # Resolve LLM profile
+    profile = get_llm_profile(llm_model)
 
     # First, yield the sources so the UI can display them
     windows = context.get("windows", [])[:limits.get("evidence_max_windows", 4)]
@@ -378,6 +396,8 @@ def stream_answer(
         temperature=0.0,
         timeout_s=120,
         max_tokens=max_tokens,
+        model=profile.model,
+        think=profile.think,
     ):
         if chunk["type"] == "reasoning":
             yield {"type": "thinking", "chunk": chunk["content"]}

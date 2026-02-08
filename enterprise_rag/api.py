@@ -62,6 +62,7 @@ class SearchRequest(BaseModel):
     history: list[ChatMessage] | None = Field(default=None, description="Previous chat messages for context")
     include_archived: bool = Field(default=False, alias="includeArchived", description="Include archived document versions in search")
     embedding_model: str | None = Field(default=None, alias="embeddingModel", description="Embedding model: 'nomic' (fast) or 'qwen' (precise). Default: server setting")
+    llm_model: str | None = Field(default=None, alias="llmModel", description="LLM mode: 'instruct' (fast) or 'reasoning' (with thinking). Default: instruct")
     categories: list[str] | None = Field(default=None, description="Filter by document categories (e.g. ['Atwork'])")
 
 
@@ -257,7 +258,7 @@ def search(req: SearchRequest) -> SearchResponse:
                     anchors = cur.fetchall()
 
     ctx = pack_context(req.query, hits, anchors)
-    answer_raw = extract_and_answer(req.query, ctx, complexity=complexity)
+    answer_raw = extract_and_answer(req.query, ctx, complexity=complexity, llm_model=req.llm_model)
 
     # Build cited sources from answer
     sources = [
@@ -375,7 +376,7 @@ def search_stream(req: SearchRequest) -> StreamingResponse:
             if req.history:
                 history_dicts = [{"role": h.role, "content": h.content} for h in req.history]
 
-            for event in stream_answer(req.query, ctx, complexity=complexity, history=history_dicts):
+            for event in stream_answer(req.query, ctx, complexity=complexity, history=history_dicts, llm_model=req.llm_model):
                 event_type = event.get("type", "chunk")
                 if event_type == "sources":
                     yield f"event: sources\ndata: {json.dumps(event['sources'])}\n\n"

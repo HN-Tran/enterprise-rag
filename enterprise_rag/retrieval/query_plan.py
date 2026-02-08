@@ -6,6 +6,7 @@ import json
 import re
 
 from enterprise_rag.cache import cached_query_plan
+from enterprise_rag.config import get_llm_profile
 from enterprise_rag.llm import chat_json
 
 _SYSTEM = """\
@@ -56,8 +57,12 @@ def is_simple_query(query: str) -> bool:
 
 def _plan_query_impl(query: str) -> dict:
     """Plan query using LLM (uncached implementation)."""
-    # Use temperature=0.0 for deterministic rewrites
-    content = chat_json(system=_SYSTEM, user=query, temperature=0.0, timeout_s=120)
+    # Always use instruct profile for query planning (fast, no thinking)
+    profile = get_llm_profile("instruct")
+    content = chat_json(
+        system=_SYSTEM, user=query, temperature=0.0, timeout_s=120,
+        model=profile.model, think=profile.think,
+    )
     try:
         result = json.loads(content)
         # Always include original query in rewrites for baseline retrieval

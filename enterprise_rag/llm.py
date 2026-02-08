@@ -97,11 +97,13 @@ def chat_json(
     timeout_s: int = 180,
     force_json: bool = True,
     max_tokens: int | None = None,
+    model: str | None = None,
+    think: bool | None = None,
 ) -> str:
     """Call OpenAI-compatible chat completions and return message content."""
     url = settings.LLM_BASE_URL.rstrip("/") + "/chat/completions"
     payload = {
-        "model": settings.LLM_MODEL,
+        "model": model or settings.LLM_MODEL,
         "temperature": temperature,
         "messages": [
             {"role": "system", "content": system},
@@ -117,6 +119,8 @@ def chat_json(
         payload["format"] = "json"
     if max_tokens:
         payload["options"]["num_predict"] = max_tokens
+    if think is not None:
+        payload["options"]["think"] = think
     r = requests.post(url, json=payload, headers=_auth_headers(settings.LLM_API_KEY), timeout=timeout_s)
     r.raise_for_status()
     content = r.json()["choices"][0]["message"]["content"] or ""
@@ -131,6 +135,8 @@ def chat_stream(
     temperature: float = 0.1,
     timeout_s: int = 180,
     max_tokens: int | None = None,
+    model: str | None = None,
+    think: bool | None = None,
 ) -> Generator[dict[str, str], None, None]:
     """Stream chat completions, yielding dicts with type and content.
 
@@ -144,7 +150,7 @@ def chat_stream(
     """
     url = settings.LLM_BASE_URL.rstrip("/") + "/chat/completions"
     payload = {
-        "model": settings.LLM_MODEL,
+        "model": model or settings.LLM_MODEL,
         "temperature": temperature,
         "stream": True,
         "messages": [
@@ -157,6 +163,8 @@ def chat_stream(
     }
     if max_tokens:
         payload["options"]["num_predict"] = max_tokens
+    if think is not None:
+        payload["options"]["think"] = think
 
     with requests.post(
         url,

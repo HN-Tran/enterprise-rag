@@ -26,6 +26,16 @@ class ModelProfile:
 
 
 @dataclass
+class LlmProfile:
+    """Configuration for an LLM mode (instruct vs reasoning)."""
+
+    name: str  # "instruct" or "reasoning"
+    model: str  # Ollama model name
+    think: bool  # Send think=True/False to Ollama options
+    context_length: int | None = None  # Override LLM_CONTEXT_LENGTH if set
+
+
+@dataclass
 class EmbeddingProfile:
     """Configuration for an embedding model."""
 
@@ -137,6 +147,11 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "qwen3-32b-instruct"
     LLM_API_KEY: str = ""
     LLM_CONTEXT_LENGTH: int = 16000  # num_ctx for Ollama
+
+    # LLM model selection (instruct vs reasoning)
+    LLM_MODEL_INSTRUCT: str = ""  # Instruct model (empty = use LLM_MODEL)
+    LLM_MODEL_REASONING: str = ""  # Reasoning model (empty = use LLM_MODEL with think=True)
+    LLM_REASONING_THINK: bool = True  # Send think=True for reasoning profile
 
     # Ingestion / windowing
     WINDOW_PAGES: int = 2
@@ -261,6 +276,29 @@ def get_embedding_profile() -> EmbeddingProfile:
         model=settings.EMBED_MODEL,
         dim=settings.EMBED_DIM,
         db_column="embedding",  # Default column for custom models
+    )
+
+
+def get_llm_profile(name: str | None = None) -> LlmProfile:
+    """Get an LLM profile by name.
+
+    Args:
+        name: "instruct", "reasoning", or None (default = instruct behavior).
+
+    Returns:
+        LlmProfile with model name and think flag.
+    """
+    if name == "reasoning":
+        return LlmProfile(
+            name="reasoning",
+            model=settings.LLM_MODEL_REASONING or settings.LLM_MODEL,
+            think=settings.LLM_REASONING_THINK,
+        )
+    # "instruct" or None/default
+    return LlmProfile(
+        name="instruct",
+        model=settings.LLM_MODEL_INSTRUCT or settings.LLM_MODEL,
+        think=False,
     )
 
 
