@@ -395,6 +395,11 @@ def extract_html(path: str) -> ExtractedDoc:
     encoding = _detect_html_encoding(raw)
     html = raw.decode(encoding, errors="replace")
 
+    # If decoding produced replacement characters, retry with windows-1252
+    # (common for German ASP pages that lack a charset declaration)
+    if "\ufffd" in html and encoding.lower() == "utf-8":
+        html = raw.decode("windows-1252", errors="replace")
+
     # Remove <noframes> fallback content (legacy frameset pages)
     soup = BeautifulSoup(html, "lxml")
     for noframes in soup.find_all("noframes"):
