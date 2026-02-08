@@ -85,6 +85,13 @@ def ingest_path(
     ex = extract_any(path)
     file_hash = sha256_file(path)
 
+    # For HTML/ASP files, hash the normalized extracted text instead of raw bytes.
+    # Raw bytes often differ (whitespace, encoding, dynamic content) even when
+    # the meaningful content is identical.
+    if ex.source_type == "html":
+        normalized_pages = [norm_text(p) for p in ex.pages]
+        file_hash = _sha256_text("\n".join(normalized_pages))
+
     # Use title override if provided (e.g., from crawler anchor text)
     doc_title = title_override or ex.title
 
@@ -180,7 +187,11 @@ def ingest_path(
                         result["category"] = category
                     return result
 
-    pages = [norm_text(p) for p in ex.pages]
+    # Reuse already-normalized pages for HTML (computed earlier for content hash)
+    if ex.source_type == "html":
+        pages = normalized_pages  # type: ignore[possibly-undefined]
+    else:
+        pages = [norm_text(p) for p in ex.pages]
     anchors = build_anchors(pages)
     windows = build_windows(pages)
 
