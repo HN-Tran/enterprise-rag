@@ -37,7 +37,7 @@ def bm25_candidates(
                     FROM windows w
                     JOIN documents d ON d.doc_id = w.doc_id
                     WHERE w.tsv @@ websearch_to_tsquery('simple', %(q)s)
-                    AND d.categories && %(cats)s::text[]
+                    AND (d.categories && %(cats)s::text[] OR d.categories IS NULL OR d.categories = '{{}}')
                     {current_filter}
                     ORDER BY score DESC
                     LIMIT %(k)s
@@ -90,7 +90,7 @@ def vector_candidates(
 
     # Filter by is_current unless include_archived is True
     current_filter = "" if include_archived else "AND d.is_current = TRUE"
-    cat_filter = "AND d.categories && %(cats)s::text[]" if categories else ""
+    cat_filter = "AND (d.categories && %(cats)s::text[] OR d.categories IS NULL OR d.categories = '{{}}')" if categories else ""
 
     qvec = embedding if embedding is not None else embed_texts([query])[0]
     params: dict[str, Any] = {"vec": qvec, "k": k}
