@@ -1257,8 +1257,25 @@ def crawl_and_ingest_pattern(
                         continue
 
                     # Body contains not-found marker → miss
+                    # Support {} placeholder (try both unpadded and padded number)
                     body_text = response.text
-                    if not_found_text in body_text:
+                    # Also fetch iframe content (not-found text is often inside iframes)
+                    soup = BeautifulSoup(response.content, "html.parser")
+                    for iframe in soup.find_all("iframe", src=True):
+                        try:
+                            iframe_url = urljoin(url, iframe["src"])
+                            iframe_resp = client.get(iframe_url)
+                            iframe_resp.raise_for_status()
+                            body_text += iframe_resp.text
+                        except Exception:
+                            pass
+                    nf_matched = not_found_text in body_text
+                    if not nf_matched and "{}" in not_found_text:
+                        nf_matched = (
+                            not_found_text.replace("{}", str(num)) in body_text
+                            or not_found_text.replace("{}", pid) in body_text
+                        )
+                    if nf_matched:
                         consecutive_misses += 1
                         total_misses += 1
                         yield {
@@ -1280,7 +1297,24 @@ def crawl_and_ingest_pattern(
                     # -- Hit! -------------------------------------------------
                     consecutive_misses = 0
                     total_hits += 1
-                    html_content = response.content
+
+                    # Inline iframe content so the extractor sees the full text
+                    hit_soup = BeautifulSoup(response.content, "html.parser")
+                    for iframe in hit_soup.find_all("iframe", src=True):
+                        try:
+                            iframe_url = urljoin(url, iframe["src"])
+                            iframe_resp = client.get(iframe_url)
+                            iframe_resp.raise_for_status()
+                            iframe_soup = BeautifulSoup(iframe_resp.content, "html.parser")
+                            # Replace iframe tag with its body content
+                            iframe_body = iframe_soup.find("body")
+                            if iframe_body:
+                                iframe.replace_with(iframe_body)
+                            else:
+                                iframe.replace_with(iframe_soup)
+                        except Exception:
+                            pass
+                    html_content = hit_soup.encode()
 
                     yield {
                         "type": "pattern_hit",

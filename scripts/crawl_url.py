@@ -240,7 +240,27 @@ def _handle_pattern_dry_run(args: argparse.Namespace) -> int:
                         break
                     continue
 
-                if not_found_text in response.text:
+                # Check not-found text in main page + iframe content
+                from urllib.parse import urljoin
+                from bs4 import BeautifulSoup
+
+                body_text = response.text
+                soup = BeautifulSoup(response.content, "html.parser")
+                for iframe in soup.find_all("iframe", src=True):
+                    try:
+                        iframe_url = urljoin(url, iframe["src"])
+                        iframe_resp = client.get(iframe_url)
+                        iframe_resp.raise_for_status()
+                        body_text += iframe_resp.text
+                    except Exception:
+                        pass
+                nf_matched = not_found_text in body_text
+                if not nf_matched and "{}" in not_found_text:
+                    nf_matched = (
+                        not_found_text.replace("{}", str(num)) in body_text
+                        or not_found_text.replace("{}", pid) in body_text
+                    )
+                if nf_matched:
                     consecutive_misses += 1
                     print(f"  [MISS] {pid} - not-found text matched  ({consecutive_misses} consecutive)")
                     if consecutive_misses >= max_gaps:
