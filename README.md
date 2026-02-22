@@ -1,111 +1,284 @@
 # Enterprise RAG
 
-German-language document retrieval and question answering with precise source attribution.
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg)](https://fastapi.tiangolo.com/)
+[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
+[![Neo4j 5](https://img.shields.io/badge/Neo4j-5-008CC1.svg)](https://neo4j.com/)
 
-Built with Python 3.12, FastAPI, PostgreSQL+pgvector, and Neo4j.
+German-language document retrieval and question answering system with hybrid search, citation-aware answers, and cross-document intelligence.
+
+## Features
+
+- **Hybrid Search** — BM25 full-text + vector similarity with cross-encoder reranking
+- **Citation-Aware Answers** — Inline `[1]`, `[2]` references with confidence scoring
+- **Cross-Document Intelligence** — Citation graph traversal via Neo4j for linked documents
+- **Multi-Format Ingestion** — PDF, DOCX, XLSX, HTML/ASPX with automatic text extraction
+- **Streaming API** — Server-Sent Events (SSE) for real-time response streaming
+- **Dynamic Context Sizing** — Automatically adjusts context window based on query complexity
+- **Category Filtering** — Organize and filter documents by category
+- **Document Versioning** — Deduplication and version tracking with archived document support
+- **Model Profiles** — Switch between instruct (fast) and reasoning (thorough) modes
+- **Web Crawler** — Extract and ingest documents from web pages with pattern-based URL crawling
+
+## Architecture
+
+```
+┌─ INGESTION ──────────────────────┐   ┌─ RETRIEVAL ──────────────────────┐
+│                                  │   │                                  │
+│  File (PDF/DOCX/XLSX/HTML)       │   │  Query                           │
+│   │                              │   │   │                              │
+│   ├─ Text Extraction             │   │   ├─ Query Planning (LLM)        │
+│   ├─ Normalization               │   │   │   └─ BM25 term extraction    │
+│   ├─ Sliding-Window Segmentation │   │   │                              │
+│   │   ├─ Windows (multi-page)    │   │   ├─ Candidate Generation        │
+│   │   └─ Anchors (paragraphs,   │   │   │   ├─ BM25 full-text search   │
+│   │       tables, lists)         │   │   │   └─ Vector similarity       │
+│   └─ Citation Extraction         │   │   │                              │
+│       (URLs, ISO refs, law refs) │   │   ├─ Hybrid Blending (55/45)     │
+│                                  │   │   ├─ Cross-Encoder Reranking     │
+│   ▼                              │   │   ├─ Per-Document Diversification│
+│  PostgreSQL + Neo4j              │   │   └─ Citation Graph Expansion    │
+│   ├─ documents, pages, windows   │   │                                  │
+│   ├─ anchors, citations          │   └──────────────────────────────────┘
+│   ├─ HNSW vector index           │
+│   ├─ tsvector full-text index    │   ┌─ REASONING ──────────────────────┐
+│   └─ CITES graph edges           │   │                                  │
+│                                  │   │  Context Packing                 │
+└──────────────────────────────────┘   │   ├─ Windows + Anchors           │
+                                       │   └─ Cited Documents (Neo4j)     │
+                                       │                                  │
+                                       │  Evidence Extraction (LLM)       │
+                                       │   ├─ Answer with [1],[2] refs    │
+                                       │   ├─ Confidence scoring          │
+                                       │   └─ Source attribution          │
+                                       │                                  │
+                                       │  Streaming Response (SSE)        │
+                                       │   ├─ Sources → Thinking → Answer │
+                                       │   └─ Instruct / Reasoning mode   │
+                                       │                                  │
+                                       └──────────────────────────────────┘
+```
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.12 |
+| Web Framework | FastAPI + Uvicorn |
+| Database | PostgreSQL 16 + pgvector (HNSW indexes) |
+| Graph Database | Neo4j 5 (citation chains) |
+| Cache / Queue | Redis 7 |
+| LLM / Embeddings | Ollama (OpenAI-compatible API) |
+| Reranker | TEI with BAAI/bge-reranker-v2-m3 |
+| Observability | structlog + OpenTelemetry + Jaeger |
+| Package Manager | uv |
 
 ## Quick Start
 
+### Prerequisites
+
+- Docker & Docker Compose
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Running Ollama instance with your chosen models
+
+### Setup
+
 ```bash
-# 1. Start infrastructure
+# Start infrastructure (PostgreSQL, Neo4j, Redis, TEI reranker, Jaeger)
 docker compose up -d
 
-# 2. Install dependencies
+# Install Python dependencies
 uv sync
 
-# 3. Initialize database
-uv run python scripts/init_db.py
-
-# 4. Configure environment
+# Configure environment
 cp .env.example .env
 # Edit .env with your LLM/embedding endpoints
 
-# 5. Ingest documents
-uv run python scripts/ingest_folder.py --folder /path/to/data --recursive
+# Initialize database schema
+uv run python scripts/init_db.py
+```
 
-# 6. Generate embeddings
+### Ingest Documents
+
+```bash
+# Ingest documents from a folder
+uv run python scripts/ingest_folder.py --folder /path/to/docs --recursive
+
+# Backfill embeddings
 uv run python scripts/embed_windows.py --batch-size 64
 
-# 7. Start API
+# Crawl and ingest from a web page
+uv run python scripts/crawl_url.py --url https://example.com/docs --depth 1
+```
+
+### Start the API Server
+
+```bash
 uv run uvicorn enterprise_rag.api:app --host 0.0.0.0 --port 8080
+```
+
+### Query
+
+```bash
+# CLI query
+uv run python scripts/query.py --q "Was ist die aktuelle Richtlinie?" --k 8
+
+# API request
+curl -X POST http://localhost:8080/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Was ist die aktuelle Richtlinie?", "k": 8}'
 ```
 
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Liveness check |
-| `/health/ready` | GET | Readiness check (all services) |
-| `/search` | POST | Query documents |
-| `/search/stream` | POST | Query with streaming response (SSE) |
-| `/ingest` | POST | Ingest document |
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness check |
+| `GET` | `/health/ready` | Readiness check (PostgreSQL, Redis, Neo4j) |
+| `POST` | `/ingest` | Ingest a single document |
+| `GET` | `/ingest/{job_id}` | Check async ingestion job status |
+| `POST` | `/crawl` | Crawl a web page for document links |
+| `POST` | `/crawl/stream` | Streaming crawl progress (SSE) |
+| `POST` | `/search` | Search with structured JSON response |
+| `POST` | `/search/stream` | Search with streaming SSE response |
+| `POST` | `/feedback` | Submit user feedback |
 
-```bash
-# Example query
-curl -X POST http://localhost:8080/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Was sind die DSGVO Anforderungen?"}'
+### Search Request
+
+```json
+{
+  "query": "Was ist die aktuelle Richtlinie?",
+  "k": 8,
+  "categories": ["security"],
+  "llmModel": "instruct",
+  "embeddingModel": "qwen"
+}
 ```
+
+### Streaming Response (SSE)
+
+```
+event: meta
+data: {"complexity": "simple", "hit_count": 42}
+
+event: sources
+data: [{"title": "Richtlinie 2024", "page_start": 3, ...}]
+
+event: chunk
+data: {"text": "Die aktuelle Richtlinie besagt..."}
+
+event: done
+data: {}
+```
+
+## Configuration
+
+Configuration is managed via environment variables. Copy `.env.example` for a full reference.
+
+### Key Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PG_DSN` | `localhost:5432` | PostgreSQL connection string |
+| `LLM_MODEL` | `qwen3-32b-instruct` | Primary LLM model |
+| `LLM_CONTEXT_LENGTH` | `16000` | LLM context window size |
+| `EMBED_MODEL` | `qwen3-embedding-8b` | Embedding model |
+| `EMBED_DIM` | `4096` | Embedding dimensions |
+| `RERANK_ENABLED` | `true` | Enable cross-encoder reranking |
+| `CANDIDATES_BM25` | `120` | BM25 candidate pool size |
+| `CANDIDATES_VEC` | `120` | Vector candidate pool size |
+| `RERANK_KEEP` | `18` | Results kept after reranking |
+| `WINDOW_PAGES` | `2` | Pages per sliding window |
+| `WINDOW_STRIDE` | `1` | Window slide step |
+| `DYNAMIC_CONTEXT` | `true` | Dynamic context sizing |
+
+### Model Profiles
+
+Set `MODEL_PROFILE` to apply presets:
+
+| Profile | Context | Max Tokens | Use Case |
+|---------|---------|------------|----------|
+| `small` | 8K | 300 | Fast responses |
+| `medium` | 16K | 500 | Balanced (default) |
+| `large` | 32K | 800 | Comprehensive answers |
 
 ## Project Structure
 
 ```
-enterprise_rag/
-├── enterprise_rag/          # Main package
-│   ├── api.py               # FastAPI endpoints
-│   ├── config.py            # Settings (from .env)
-│   ├── db.py                # PostgreSQL + connection pooling
-│   ├── cache.py             # Redis caching layer
-│   ├── llm.py               # LLM/embedding clients
-│   ├── log.py               # Structured logging
-│   ├── telemetry.py         # OpenTelemetry tracing
-│   ├── neo4j_amp.py         # Neo4j graph operations
-│   ├── ingestion/           # Document processing
-│   ├── retrieval/           # Search pipeline
-│   ├── reasoning/           # Answer generation
-│   └── tasks/               # Background job queue
-├── scripts/                 # CLI tools
-├── sql/                     # Database schema
-├── tests/                   # Test suite
-└── docker-compose.yml       # Infrastructure
+├── enterprise_rag/
+│   ├── api.py                     # FastAPI endpoints
+│   ├── config.py                  # Settings and model profiles
+│   ├── models.py                  # Shared data models
+│   ├── db.py                      # PostgreSQL connection pool
+│   ├── llm.py                     # LLM / embedding / reranker clients
+│   ├── cache.py                   # Redis caching
+│   ├── neo4j_amp.py               # Neo4j graph operations
+│   ├── log.py                     # Structured logging
+│   ├── telemetry.py               # OpenTelemetry tracing
+│   ├── ingestion/
+│   │   ├── extractors.py          # PDF/DOCX/XLSX/HTML extraction
+│   │   ├── normalize.py           # Text cleanup
+│   │   ├── segment.py             # Sliding-window chunking
+│   │   ├── citations.py           # Reference extraction
+│   │   ├── versioning.py          # Document deduplication
+│   │   ├── crawler.py             # Web crawler
+│   │   └── ingest.py              # Ingestion orchestration
+│   ├── retrieval/
+│   │   ├── hybrid.py              # Search orchestration
+│   │   ├── query_plan.py          # LLM query rewriting
+│   │   ├── postgres_retrieval.py  # BM25 + vector search
+│   │   ├── rerank.py              # Cross-encoder reranking
+│   │   ├── citation_expand.py     # Citation graph traversal
+│   │   └── complexity.py          # Query complexity analysis
+│   └── reasoning/
+│       ├── pack.py                # Context packing
+│       └── evidence.py            # Answer generation
+├── scripts/
+│   ├── init_db.py                 # Database initialization
+│   ├── ingest_folder.py           # Bulk document ingestion
+│   ├── embed_windows.py           # Embedding backfill
+│   ├── query.py                   # CLI query interface
+│   ├── crawl_url.py               # Web crawler CLI
+│   ├── evaluate.py                # Evaluation suite
+│   └── worker.py                  # Async job worker
+├── sql/
+│   └── schema.sql                 # Database schema
+├── tests/                         # Test suite
+├── docker-compose.yml             # Infrastructure services
+├── pyproject.toml                 # Dependencies
+└── .env.example                   # Configuration template
 ```
 
-## Documentation
+## Development
 
-- **[USAGE.md](USAGE.md)** - Detailed usage guide
-- **[RETRIEVAL_CONCEPTS.md](RETRIEVAL_CONCEPTS.md)** - How retrieval works (BM25, embeddings, reranking)
-- **[ROADMAP.md](ROADMAP.md)** - Implementation phases
-- **[CLAUDE.md](CLAUDE.md)** - Developer guidance
-- **[ARCHITECTURE_REVIEW.md](ARCHITECTURE_REVIEW.md)** - System assessment
+```bash
+# Install with dev dependencies
+uv sync --extra dev
 
-## Features
+# Code formatting
+black --line-length 100 .
 
-**Completed:**
-- Hybrid search (BM25 + vector) with TEI reranking
-- Citation-aware answers with `[1]`, `[2]` references
-- Cross-document citation chain traversal
-- Connection pooling and Redis caching
-- Async ingestion with job queue
-- Structured logging and distributed tracing
-- Health endpoints for monitoring
-- Streaming responses (Server-Sent Events)
-- Model profiles (small/medium/large) for different LLM capabilities
-- Dynamic context sizing based on query complexity
+# Linting
+ruff check .
 
-**Deferred:**
-- Entity extraction (pending corpus analysis)
-- Scale optimization (when needed)
+# Type checking
+mypy .
 
-## Requirements
+# Run tests
+pytest
 
-- Python 3.12
-- [uv](https://docs.astral.sh/uv/) package manager
-- Docker & Docker Compose
-- OpenAI-compatible LLM/embedding endpoints
+# Run single test
+pytest tests/test_specific.py::test_function
+
+# Run evaluation suite
+uv run python scripts/evaluate.py --test-file tests/eval_cases.json --verbose
+```
 
 ### Optional System Dependencies
 
-For legacy `.doc` file support, install one of:
+For legacy `.doc` file support:
+
 ```bash
 sudo apt install antiword    # Recommended
 # or
