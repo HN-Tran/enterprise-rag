@@ -229,7 +229,7 @@ class Settings(BaseSettings):
 
     # Crawler settings
     CRAWLER_TIMEOUT: int = 30  # HTTP request timeout in seconds
-    CRAWLER_USER_AGENT: str = "EnterpriseRAG-Crawler/1.0"
+    CRAWLER_USER_AGENT: str = "Enterprise-RAG-Crawler/1.0"
     CRAWLER_MAX_FILE_SIZE_MB: int = 100  # Max file size to download
     CRAWLER_ALLOWED_EXTENSIONS: str = ".pdf,.docx,.xlsx,.xls,.doc,.html,.htm,.asp,.aspx"  # Comma-separated
     CRAWLER_VERIFY_SSL: bool = True  # Set False for corporate proxies with SSL inspection

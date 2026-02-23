@@ -23,40 +23,40 @@ German-language document retrieval and question answering system with hybrid sea
 ## Architecture
 
 ```
-┌─ INGESTION ──────────────────────┐   ┌─ RETRIEVAL ──────────────────────┐
-│                                  │   │                                  │
-│  File (PDF/DOCX/XLSX/HTML)       │   │  Query                           │
-│   │                              │   │   │                              │
-│   ├─ Text Extraction             │   │   ├─ Query Planning (LLM)        │
-│   ├─ Normalization               │   │   │   └─ BM25 term extraction    │
-│   ├─ Sliding-Window Segmentation │   │   │                              │
-│   │   ├─ Windows (multi-page)    │   │   ├─ Candidate Generation        │
-│   │   └─ Anchors (paragraphs,   │   │   │   ├─ BM25 full-text search   │
-│   │       tables, lists)         │   │   │   └─ Vector similarity       │
-│   └─ Citation Extraction         │   │   │                              │
-│       (URLs, ISO refs, law refs) │   │   ├─ Hybrid Blending (55/45)     │
-│                                  │   │   ├─ Cross-Encoder Reranking     │
-│   ▼                              │   │   ├─ Per-Document Diversification│
-│  PostgreSQL + Neo4j              │   │   └─ Citation Graph Expansion    │
-│   ├─ documents, pages, windows   │   │                                  │
-│   ├─ anchors, citations          │   └──────────────────────────────────┘
+┌─ INGESTION ──────────────────────┐    ┌─ RETRIEVAL ──────────────────────┐
+│                                  │    │                                  │
+│  File (PDF/DOCX/XLSX/HTML)       │    │  Query                           │
+│   │                              │    │   │                              │
+│   ├─ Text Extraction             │    │   ├─ Query Planning (LLM)        │
+│   ├─ Normalization               │    │   │   └─ BM25 term extraction    │
+│   ├─ Sliding-Window Segmentation │    │   │                              │
+│   │   ├─ Windows (multi-page)    │    │   ├─ Candidate Generation        │
+│   │   └─ Anchors (paragraphs,   │    │   │   ├─ BM25 full-text search   │
+│   │       tables, lists)         │    │   │   └─ Vector similarity       │
+│   └─ Citation Extraction         │    │   │                              │
+│       (URLs, ISO refs, law refs) │    │   ├─ Hybrid Blending (55/45)     │
+│                                  │    │   ├─ Cross-Encoder Reranking     │
+│   ▼                              │    │   ├─ Per-Document Diversification│
+│  PostgreSQL + Neo4j              │    │   └─ Citation Graph Expansion    │
+│   ├─ documents, pages, windows   │    │                                  │
+│   ├─ anchors, citations          │    └──────────────────────────────────┘
 │   ├─ HNSW vector index           │
-│   ├─ tsvector full-text index    │   ┌─ REASONING ──────────────────────┐
-│   └─ CITES graph edges           │   │                                  │
-│                                  │   │  Context Packing                 │
-└──────────────────────────────────┘   │   ├─ Windows + Anchors           │
-                                       │   └─ Cited Documents (Neo4j)     │
-                                       │                                  │
-                                       │  Evidence Extraction (LLM)       │
-                                       │   ├─ Answer with [1],[2] refs    │
-                                       │   ├─ Confidence scoring          │
-                                       │   └─ Source attribution          │
-                                       │                                  │
-                                       │  Streaming Response (SSE)        │
-                                       │   ├─ Sources → Thinking → Answer │
-                                       │   └─ Instruct / Reasoning mode   │
-                                       │                                  │
-                                       └──────────────────────────────────┘
+│   ├─ tsvector full-text index    │    ┌─ REASONING ──────────────────────┐
+│   └─ CITES graph edges           │    │                                  │
+│                                  │    │  Context Packing                 │
+└──────────────────────────────────┘    │   ├─ Windows + Anchors           │
+                                        │   └─ Cited Documents (Neo4j)     │
+                                        │                                  │
+                                        │  Evidence Extraction (LLM)       │
+                                        │   ├─ Answer with [1],[2] refs    │
+                                        │   ├─ Confidence scoring          │
+                                        │   └─ Source attribution          │
+                                        │                                  │
+                                        │  Streaming Response (SSE)        │
+                                        │   ├─ Sources → Thinking → Answer │
+                                        │   └─ Instruct / Reasoning mode   │
+                                        │                                  │
+                                        └──────────────────────────────────┘
 ```
 
 ## Tech Stack
@@ -109,7 +109,7 @@ uv run python scripts/ingest_folder.py --folder /path/to/docs --recursive
 uv run python scripts/embed_windows.py --batch-size 64
 
 # Crawl and ingest from a web page
-uv run python scripts/crawl_url.py --url https://example.com/docs --depth 1
+uv run python scripts/crawl_url.py https://example.com/docs --depth 1
 ```
 
 ### Start the API Server
@@ -128,6 +128,116 @@ uv run python scripts/query.py --q "Was ist die aktuelle Richtlinie?" --k 8
 curl -X POST http://localhost:8080/search \
   -H "Content-Type: application/json" \
   -d '{"query": "Was ist die aktuelle Richtlinie?", "k": 8}'
+```
+
+## CLI Scripts
+
+### init_db.py
+
+Initialize the database schema from `sql/schema.sql`. No parameters.
+
+```bash
+uv run python scripts/init_db.py
+```
+
+### ingest_folder.py
+
+Bulk ingest documents from the filesystem.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--folder` | *required* | Folder to ingest from |
+| `--recursive` | `true` | Include subfolders |
+| `--type` | *all* | Only ingest specific type (`pdf`, `docx`, `xlsx`, `html`) |
+| `--force` | `false` | Re-ingest even if file content hasn't changed |
+
+```bash
+uv run python scripts/ingest_folder.py --folder /data/docs --recursive --type pdf
+```
+
+### embed_windows.py
+
+Backfill embeddings for all un-embedded windows.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--batch-size` | `64` | Batch size for embedding |
+| `--model` | *env default* | Embedding model profile to use |
+| `--all` | `false` | Re-embed all windows, not just missing |
+| `--workers` | `4` | Number of parallel workers |
+
+```bash
+uv run python scripts/embed_windows.py --batch-size 128 --workers 8
+```
+
+### query.py
+
+CLI query interface for testing retrieval.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--q` | *required* | Query text |
+| `--k` | `8` | Number of results to show |
+| `--timing` | `false` | Show timing breakdown |
+
+```bash
+uv run python scripts/query.py --q "DSGVO Anforderungen" --k 5 --timing
+```
+
+### crawl_url.py
+
+Web crawler for extracting and ingesting documents from URLs.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `urls` | *positional* | URLs to crawl for document links |
+| `-f`, `--file` | — | Read URLs from a text file (one per line) |
+| `--dry-run` | `false` | Preview discovered links without downloading |
+| `--download-dir` | *temp dir* | Directory to save downloaded files |
+| `-q`, `--quiet` | `false` | Only show summary |
+| `--follow-pages` | `false` | Follow HTML page links recursively (BFS) |
+| `--depth` | — | Max BFS depth (required with `--follow-pages`) |
+| `--max-pages` | *env default* | Max pages to visit during recursive crawl |
+| `--pattern` | — | URL pattern with `{}` placeholder |
+| `--start` | `1` | First number in pattern mode |
+| `--end` | `9999` | Last number in pattern mode |
+| `--pad-width` | `4` | Zero-padding width for pattern numbers |
+| `--not-found-text` | — | Substring indicating "not found" (required with `--pattern`) |
+| `--max-gaps` | `10` | Consecutive misses before stopping pattern crawl |
+| `--mark-unseen` | `false` | Mark unmatched documents as orphaned after crawl |
+
+```bash
+# Recursive crawl
+uv run python scripts/crawl_url.py https://example.com/docs --follow-pages --depth 2
+
+# Pattern-based crawl
+uv run python scripts/crawl_url.py --pattern "https://example.com/info?id={}" \
+  --start 1 --end 500 --pad-width 1 --not-found-text "nicht gefunden" --dry-run
+```
+
+### evaluate.py
+
+Run the evaluation suite against test cases.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--test-file` | — | Path to test cases JSON file |
+| `--output` | — | Path to save results JSON |
+| `--create-sample` | `false` | Create a sample test cases file |
+| `-v`, `--verbose` | `false` | Show progress during evaluation |
+
+```bash
+uv run python scripts/evaluate.py --test-file tests/eval_cases.json --verbose --output results.json
+```
+
+### worker.py
+
+Redis queue worker for async ingestion tasks. Accepts queue names as positional arguments.
+
+```bash
+uv run python scripts/worker.py                     # All queues (default + embeddings)
+uv run python scripts/worker.py default              # Default queue only
+uv run python scripts/worker.py embeddings           # Embeddings queue only
 ```
 
 ## API Endpoints
@@ -234,14 +344,7 @@ Set `MODEL_PROFILE` to apply presets:
 │   └── reasoning/
 │       ├── pack.py                # Context packing
 │       └── evidence.py            # Answer generation
-├── scripts/
-│   ├── init_db.py                 # Database initialization
-│   ├── ingest_folder.py           # Bulk document ingestion
-│   ├── embed_windows.py           # Embedding backfill
-│   ├── query.py                   # CLI query interface
-│   ├── crawl_url.py               # Web crawler CLI
-│   ├── evaluate.py                # Evaluation suite
-│   └── worker.py                  # Async job worker
+├── scripts/                       # CLI tools (see CLI Scripts section)
 ├── sql/
 │   └── schema.sql                 # Database schema
 ├── tests/                         # Test suite
@@ -270,9 +373,6 @@ pytest
 
 # Run single test
 pytest tests/test_specific.py::test_function
-
-# Run evaluation suite
-uv run python scripts/evaluate.py --test-file tests/eval_cases.json --verbose
 ```
 
 ### Optional System Dependencies
@@ -284,3 +384,11 @@ sudo apt install antiword    # Recommended
 # or
 sudo apt install catdoc      # Alternative
 ```
+
+## Author
+
+**HN-Tran** — [](mailto:)
+
+## License
+
+Proprietary. All rights reserved.
