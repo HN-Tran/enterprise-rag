@@ -44,6 +44,7 @@ class EmbeddingProfile:
     dim: int  # Embedding dimensions
     db_column: str  # PostgreSQL column name
     base_url: str | None = None  # Override base URL (None = use default)
+    api_format: str = "auto"  # "openai", "tei", or "auto" (detect from URL port)
 
 
 # Predefined model profiles for common configurations
@@ -104,6 +105,7 @@ EMBEDDING_PROFILES: dict[str, EmbeddingProfile] = {
         dim=768,
         db_column="embedding_nomic",
         base_url=None,  # Populated from settings.NOMIC_BASE_URL
+        api_format="tei",
     ),
 }
 
@@ -127,6 +129,7 @@ class Settings(BaseSettings):
     EMBED_MODEL: str = "qwen3-embedding-8b"
     EMBED_API_KEY: str = ""
     EMBED_DIM: int = 4096
+    EMBED_API_FORMAT: str = "openai"  # "openai" or "tei"
 
     # Embedding profile - switch between models (qwen, nomic)
     # When set, overrides EMBED_MODEL and EMBED_DIM

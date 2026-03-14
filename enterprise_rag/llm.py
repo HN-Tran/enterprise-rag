@@ -55,8 +55,12 @@ def _embed_texts_impl(texts: list[str], profile_name: str | None = None) -> list
         profile = get_embedding_profile()
     base_url = profile.base_url or settings.EMBED_BASE_URL
 
-    # TEI uses different format than OpenAI
-    if profile.base_url:
+    # Determine API format from profile or global setting
+    fmt = getattr(profile, "api_format", "auto")
+    if fmt == "auto":
+        fmt = settings.EMBED_API_FORMAT
+
+    if fmt == "tei":
         # TEI format: /embed endpoint with "inputs" field
         # Truncate texts to avoid exceeding TEI token limits (~4 chars per token, 8192 max)
         max_chars = 6000  # Conservative limit per text
