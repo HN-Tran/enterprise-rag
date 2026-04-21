@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Enterprise-grade RAG system (Postgres + pgvector, optional Neo4j)"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-license = { text = "Proprietary" }
+license = { text = "Apache-2.0" }
 
 authors = [
   { name = "HN-Tran" }

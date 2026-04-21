@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enterprise-rag
+  namespace: placebo
+  labels:
+    app: enterprise-rag
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: enterprise-rag
+  template:
+    metadata:
+      labels:
+        app: enterprise-rag
+    spec:
+      containers:
+        - name: api
+          image: enterprise-rag:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: enterprise-rag
+            - secretRef:
+                name: enterprise-rag
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"

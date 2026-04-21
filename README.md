@@ -387,8 +387,8 @@ sudo apt install catdoc      # Alternative
 
 ## Author
 
-**HN-Tran** — [](mailto:)
+HN-Tran — <https://github.com/HN-Tran>
 
 ## License
 
-Proprietary. All rights reserved.
+Apache-2.0 — see [`LICENSE`](LICENSE).
