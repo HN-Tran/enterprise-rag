@@ -1,3 +1,5 @@
+[English](README.md) · [Deutsch](README_DE.md)
+
 # Enterprise RAG
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/downloads/)
@@ -31,7 +33,7 @@ German-language document retrieval and question answering system with hybrid sea
 │   ├─ Normalization               │    │   │   └─ BM25 term extraction    │
 │   ├─ Sliding-Window Segmentation │    │   │                              │
 │   │   ├─ Windows (multi-page)    │    │   ├─ Candidate Generation        │
-│   │   └─ Anchors (paragraphs,   │    │   │   ├─ BM25 full-text search   │
+│   │   └─ Anchors (paragraphs,    │    │   │   ├─ BM25 full-text search   │
 │   │       tables, lists)         │    │   │   └─ Vector similarity       │
 │   └─ Citation Extraction         │    │   │                              │
 │       (URLs, ISO refs, law refs) │    │   ├─ Hybrid Blending (55/45)     │
